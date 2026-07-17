@@ -247,7 +247,7 @@ fn spawn_event_pump(deps: PumpDeps) {
                 EngineEvent::ApplyRemote {
                     text, from, hash, ..
                 } => {
-                    let preview = preview_of(&text);
+                    let preview = crate::history::preview_text(&text);
                     // 装配层落地: 写系统剪贴板(回声哈希已在引擎侧登记);
                     // 失败必须撤销回声登记, 否则孤儿哈希会误吞下一次
                     // 同内容的真实本机复制(ApplyRemote 契约)
@@ -329,16 +329,5 @@ pub fn notify_if_unfocused(app: &tauri::AppHandle, title: &str, body: &str) {
     }
     if let Err(e) = app.notification().builder().title(title).body(body).show() {
         tracing::debug!("系统通知发送失败: {e}");
-    }
-}
-
-/// 文本预览: 首行截前 60 字符(仅展示, 不改原文)
-fn preview_of(text: &str) -> String {
-    let first_line = text.lines().next().unwrap_or_default();
-    let preview: String = first_line.chars().take(60).collect();
-    if preview.len() < text.len() {
-        format!("{preview}…")
-    } else {
-        preview
     }
 }

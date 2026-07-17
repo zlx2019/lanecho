@@ -5,12 +5,13 @@ import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
 import { EVENTS } from "./events";
+import { DeviceList } from "./components/DeviceList";
 import { PairRequestModal } from "./components/PairRequestModal";
 import { Button, ToggleRow } from "./components/ModalShell";
 import { useLanecho } from "./hooks/useLanecho";
 import { formatError, useI18n, type Lang } from "./i18n";
 import { useTheme, type ThemePref } from "./theme";
-import type { DeviceDto, Settings } from "./types";
+import type { Settings } from "./types";
 
 /** 是否在 Tauri 运行时内 */
 const hasTauri = "__TAURI_INTERNALS__" in window;
@@ -37,30 +38,45 @@ export default function App() {
   const [portInput, setPortInput] = useState(0);
   const [langChoice, setLangChoice] = useState<Lang>(lang);
   const [tip, setTip] = useState("");
-  const [pairError, setPairError] = useState("");
-  const [pairingWith, setPairingWith] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [incognito, setIncognito] = useState(false);
   const [usage, setUsage] = useState(0);
   const [hotkeyInput, setHotkeyInput] = useState("");
   const [maxEntriesInput, setMaxEntriesInput] = useState(200);
   const [saving, setSaving] = useState(false);
+  // 提示自动消隐的定时器: 连续触发时先清旧的, 卸载时统一清理
+  const tipTimer = useRef<number | undefined>(undefined);
+  const copiedTimer = useRef<number | undefined>(undefined);
+  useEffect(
+    () => () => {
+      clearTimeout(tipTimer.current);
+      clearTimeout(copiedTimer.current);
+    },
+    [],
+  );
 
   // 初始加载设置 + 历史占用 + 无痕状态(托盘切换经事件回显)
   useEffect(() => {
     if (!hasTauri) return;
+    let alive = true;
     api
       .getSettings()
       .then((s) => {
+        if (!alive) return;
         setSettings(s);
         setPortInput(s.tcpPort);
         setHotkeyInput(s.panelHotkey);
         setMaxEntriesInput(s.historyMaxEntries);
       })
       .catch(console.error);
-    api.getIncognito().then(setIncognito).catch(console.error);
-    api.historyUsage().then(setUsage).catch(console.error);
-    let alive = true;
+    api
+      .getIncognito()
+      .then((v) => alive && setIncognito(v))
+      .catch(console.error);
+    api
+      .historyUsage()
+      .then((v) => alive && setUsage(v))
+      .catch(console.error);
     const unsubs: (() => void)[] = [];
     const add = (subscription: Promise<() => void>) => {
       subscription
@@ -130,16 +146,20 @@ export default function App() {
       }
       const next: Settings = {
         ...settings,
-        tcpPort: portInput,
+        // 数字输入手输可越界: 提交前夹取到合法域(u16 / 上限 1 万条)
+        tcpPort: Math.min(65535, Math.max(0, Math.round(portInput) || 0)),
         language: langChoice,
         panelHotkey: hotkeyInput.trim(),
-        historyMaxEntries: Math.max(1, maxEntriesInput),
+        historyMaxEntries: Math.min(10000, Math.max(1, Math.round(maxEntriesInput) || 1)),
       };
       await api.saveSettings(next);
       setSettings(next);
+      setPortInput(next.tcpPort);
+      setMaxEntriesInput(next.historyMaxEntries);
       if (langChoice !== lang) setLang(langChoice);
       setTip(t.settings.saved);
-      setTimeout(() => setTip(""), 2500);
+      clearTimeout(tipTimer.current);
+      tipTimer.current = window.setTimeout(() => setTip(""), 2500);
     } catch (e) {
       setTip(formatError(e));
     } finally {
@@ -147,36 +167,17 @@ export default function App() {
     }
   };
 
-  /** 发起配对(等待对端确认, 按钮呈等待态) */
-  const pair = async (device: DeviceDto) => {
-    setPairError("");
-    setPairingWith(device.fingerprint);
-    try {
-      await api.pairDevice(device.fingerprint);
-      lanecho.refreshDevices();
-    } catch (e) {
-      setPairError(formatError(e));
-    } finally {
-      setPairingWith(null);
-    }
-  };
-
-  /** 解除配对 */
-  const unpair = (device: DeviceDto) => {
-    setPairError("");
-    api
-      .unpairDevice(device.fingerprint)
-      .then(() => lanecho.refreshDevices())
-      .catch((e) => setPairError(formatError(e)));
-  };
-
   /** 复制本机指纹 */
   const copyFingerprint = () => {
     if (!lanecho.self) return;
-    navigator.clipboard.writeText(lanecho.self.fingerprint).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
+    navigator.clipboard
+      .writeText(lanecho.self.fingerprint)
+      .then(() => {
+        setCopied(true);
+        clearTimeout(copiedTimer.current);
+        copiedTimer.current = window.setTimeout(() => setCopied(false), 1500);
+      })
+      .catch(console.error);
   };
 
   const themeTitle =
@@ -218,60 +219,8 @@ export default function App() {
           </div>
         </div>
 
-        {/* 设备列表 */}
-        <div className="gauge-label mt-5 mb-2">{t.devices.section}</div>
-        <div className="rounded-xl border border-line bg-panel">
-          {lanecho.devices.length === 0 ? (
-            <div className="px-4 py-6 text-center text-xs text-mist">{t.devices.empty}</div>
-          ) : (
-            lanecho.devices.map((device) => (
-              <div
-                key={device.fingerprint}
-                className="flex items-center gap-3 border-b border-line/40 px-4 py-2.5 last:border-b-0"
-              >
-                <span
-                  className={`size-2 shrink-0 rounded-full ${
-                    device.online ? "anim-breathe bg-live" : "bg-faint"
-                  }`}
-                  title={device.online ? t.devices.online : t.devices.offline}
-                />
-                <div className="min-w-0 flex-1">
-                  <div
-                    className={`truncate text-sm ${device.online ? "text-fog" : "text-mist"}`}
-                  >
-                    {device.name}
-                  </div>
-                  <div className="font-gauge text-[10px] text-mist">
-                    {device.fingerprint.slice(0, 8)}
-                    {device.platform ? ` · ${device.platform}` : ""}
-                    {device.osVersion ? ` · ${device.osVersion}` : ""}
-                  </div>
-                </div>
-                {device.paired && (
-                  <span className="shrink-0 rounded bg-chip px-1.5 py-0.5 text-[10px] text-sonar">
-                    {t.devices.paired}
-                  </span>
-                )}
-                {device.paired ? (
-                  <Button variant="danger" onClick={() => unpair(device)}>
-                    {t.devices.unpair}
-                  </Button>
-                ) : (
-                  device.online && (
-                    <Button
-                      variant="primary"
-                      disabled={pairingWith !== null}
-                      onClick={() => pair(device)}
-                    >
-                      {pairingWith === device.fingerprint ? t.devices.pairing : t.devices.pair}
-                    </Button>
-                  )
-                )}
-              </div>
-            ))
-          )}
-        </div>
-        {pairError && <div className="mt-2 text-xs text-alert">{pairError}</div>}
+        {/* 设备列表(配对交互内聚在组件里) */}
+        <DeviceList devices={lanecho.devices} onChanged={lanecho.refreshDevices} />
 
         {/* 设置 */}
         <div className="gauge-label mt-5 mb-2">{t.settings.section}</div>

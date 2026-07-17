@@ -93,7 +93,7 @@ fn supported_schemes(provider: &CryptoProvider) -> Vec<SignatureScheme> {
 
 /// 进程级共享的加密算法 Provider
 ///
-/// 算法表构造有固定开销, 而每次建连(控制/数据/头像拉取)都要装配
+/// 算法表构造有固定开销, 而每次同步/配对事务都新建连接装配
 /// verifier 与 rustls 配置, 共享一份避免重复构造。
 fn shared_provider() -> Arc<CryptoProvider> {
     static PROVIDER: std::sync::OnceLock<Arc<CryptoProvider>> = std::sync::OnceLock::new();

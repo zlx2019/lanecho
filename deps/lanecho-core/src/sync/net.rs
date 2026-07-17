@@ -50,6 +50,9 @@ async fn connect_peer(
 ) -> Result<tokio_rustls::client::TlsStream<TcpStream>, SyncError> {
     let config = tls::client_config(identity, Some(peer.info.fingerprint.clone()))?;
     let connector = TlsConnector::from(Arc::new(config));
+    // ServerName 仅为 API 要求(常量输入不可能失败), 校验走指纹 pin(见 tls 模块)
+    let name = rustls_pki_types::ServerName::try_from("lanecho")
+        .map_err(|_| SyncError::PeerUnreachable)?;
     for addr in &peer.addrs {
         let Ok(Ok(tcp)) =
             tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect((*addr, peer.port))).await
@@ -57,11 +60,7 @@ async fn connect_peer(
             continue;
         };
         let _ = tcp.set_nodelay(true);
-        // ServerName 仅为 API 要求, 校验走指纹 pin(见 tls 模块)
-        let Ok(name) = rustls_pki_types::ServerName::try_from("lanecho") else {
-            continue;
-        };
-        match connector.connect(name, tcp).await {
+        match connector.connect(name.clone(), tcp).await {
             Ok(stream) => return Ok(stream),
             Err(e) => {
                 tracing::debug!(%addr, "TLS 连接失败, 尝试下一候选地址: {e}");

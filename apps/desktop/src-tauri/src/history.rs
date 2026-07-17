@@ -459,7 +459,8 @@ fn write_index_snapshot(entries: &Mutex<Vec<HistoryEntry>>, dir: &Path) {
 }
 
 /// 文本预览: 首行截 80 字符(仅展示; 存储层保持逐字节原样)
-fn preview_text(text: &str) -> String {
+/// —— 历史条目与同步通知共用同一把尺(bridge 层勿另起炉灶)
+pub fn preview_text(text: &str) -> String {
     let first_line = text.lines().next().unwrap_or_default();
     let preview: String = first_line.chars().take(80).collect();
     if preview.len() < text.len() {

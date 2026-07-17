@@ -309,7 +309,7 @@ pub async fn copy_entry_to_clipboard(app: &tauri::AppHandle, id: &str) -> Result
                 .ok_or_else(|| ErrDto::new("history_missing"))?;
             // 磁盘读取 + PNG 解码是阻塞操作, 移出 async 上下文
             let (width, height, rgba) =
-                tokio::task::spawn_blocking(move || history.load_image_rgba(&hash))
+                tauri::async_runtime::spawn_blocking(move || history.load_image_rgba(&hash))
                     .await
                     .map_err(|e| ErrDto::with("history_missing", e))?
                     .map_err(|e| ErrDto::with("history_missing", e))?;
@@ -390,11 +390,17 @@ pub async fn history_usage(app: tauri::AppHandle) -> Result<u64, ErrDto> {
 
 /// 切换无痕模式(暂停历史记录; 会话级不持久化)
 #[tauri::command]
-pub fn set_incognito(app: tauri::AppHandle, state: State<'_, AppState>, on: bool) {
+pub fn set_incognito(app: tauri::AppHandle, on: bool) {
+    set_incognito_inner(&app, on);
+}
+
+/// 无痕切换的共享实现(设置命令与托盘勾选共用, 防两处逻辑漂移)
+pub fn set_incognito_inner(app: &tauri::AppHandle, on: bool) {
+    let state = app.state::<AppState>();
     state
         .incognito
         .store(on, std::sync::atomic::Ordering::Relaxed);
-    crate::refresh_tray_menu(&app);
+    crate::refresh_tray_menu(app);
     use tauri::Emitter;
     let _ = app.emit(events::INCOGNITO_STATE, on);
 }

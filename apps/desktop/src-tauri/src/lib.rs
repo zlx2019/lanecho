@@ -415,11 +415,7 @@ fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
                 let next = !state
                     .incognito
                     .load(std::sync::atomic::Ordering::Relaxed);
-                state
-                    .incognito
-                    .store(next, std::sync::atomic::Ordering::Relaxed);
-                refresh_tray_menu(app);
-                let _ = app.emit(bridge::events::INCOGNITO_STATE, next);
+                commands::set_incognito_inner(app, next);
             }
             "history" => show_panel(app),
             "settings" => show_main_window(app),

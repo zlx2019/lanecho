@@ -7,16 +7,14 @@
 @import "tailwindcss";
 
 @theme {
-  /* 底色三层: 页面底 / 面板 / 浮层控件 */
+  /* 底色两层: 页面底 / 面板 */
   --color-abyss: #101425;
   --color-panel: #161b30;
-  --color-panel-2: #1b2138;
   /* 描线两级(在 panel 底上的等效实色, 避免透明度修饰符二次叠加过淡) */
   --color-line: #262c45;
   --color-line-2: #363e63;
-  /* 蓝紫主色(在线 / 主操作)与深主色 */
+  /* 蓝紫主色(在线 / 主操作) */
   --color-sonar: #8b96ff;
-  --color-sonar-dim: #6b78f5;
   /* 告警红 */
   --color-alert: #f26057;
   /* 在线绿 */
@@ -36,12 +34,12 @@
 [data-theme="light"] {
   --color-abyss: #eef1fa;
   --color-panel: #ffffff;
-  --color-panel-2: #f4f6fd;
   --color-line: #e3e6f2;
   --color-line-2: #ccd2e8;
   --color-sonar: #5b6cf0;
-  --color-sonar-dim: #4655d8;
   --color-alert: #e0483d;
+  /* 在线绿加深一档: 暗色版 #3ec06d 在白底上偏浅 */
+  --color-live: #22a35a;
   --color-fog: #232948;
   --color-mist: #6d7494;
   --color-faint: #9aa0ba;
