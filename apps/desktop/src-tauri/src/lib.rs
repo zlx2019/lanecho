@@ -4,7 +4,8 @@
 //! - 关窗 = prevent_close + hide(托盘常驻), 真退出只走托盘菜单
 //! - Ctrl-C/SIGTERM 经 wait_for_termination 引到 handle.exit(0),
 //!   保证 RunEvent::Exit 里引擎优雅关闭(goodbye + mDNS 注销)能执行
-//! - 托盘菜单文案创建时固定, 语言/开关状态变化需整菜单重建
+//! - 托盘菜单经句柄**原位更新**(set_text/set_checked, 见 TrayMenu):
+//!   Linux 上 set_menu 整替不生效, 不得改回重建模式
 
 mod bridge;
 mod commands;
