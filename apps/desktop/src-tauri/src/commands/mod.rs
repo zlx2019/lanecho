@@ -228,8 +228,11 @@ pub async fn pair_device(app: tauri::AppHandle, fingerprint: String) -> Result<(
 
 /// 回应入站配对请求(对应 pair-requested 事件)
 #[tauri::command]
-pub fn respond_pair(state: State<'_, AppState>, fingerprint: String, accept: bool) {
-    state.engine.respond_pair(&fingerprint, accept);
+pub fn respond_pair(app: tauri::AppHandle, fingerprint: String, accept: bool) {
+    app.state::<AppState>()
+        .engine
+        .respond_pair(&fingerprint, accept);
+    crate::update_pending_tooltip(&app);
 }
 
 /// 待决的入站配对请求快照
@@ -409,4 +412,19 @@ pub fn set_incognito_inner(app: &tauri::AppHandle, on: bool) {
 #[tauri::command]
 pub fn get_incognito(state: State<'_, AppState>) -> bool {
     state.incognito.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// 面板毛玻璃材质是否生效(前端据此切换半透明背景变量)
+///
+/// 配置式 windowEffects 无生效回执, 按平台能力判定: macOS(10.15 基线)
+/// 恒可用; 其余平台配置里未声明材质, 保持不透明底(防透明窗漏桌面)。
+#[tauri::command]
+pub fn window_effects_active() -> bool {
+    cfg!(target_os = "macos")
+}
+
+/// 注册失败的槽位快捷键列表(Alt+N 的 N; 设置页提示被占用的槽位)
+#[tauri::command]
+pub fn get_slot_hotkey_failures(state: State<'_, AppState>) -> Vec<u8> {
+    lock(&state.slot_hotkey_failures).clone()
 }

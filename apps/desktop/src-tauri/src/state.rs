@@ -19,6 +19,9 @@ pub struct AppState {
     pub history: Arc<HistoryStore>,
     /// 无痕模式: 暂停历史记录(会话级, 不持久化 —— 重启恢复记录是安全默认)
     pub incognito: Arc<AtomicBool>,
+    /// 注册失败的槽位快捷键(Alt+N 的 N; 被其他应用占用时记录,
+    /// 设置页据此提示 —— 否则开关显示开启用户却以为功能坏了)
+    pub slot_hotkey_failures: Mutex<Vec<u8>>,
     /// 引擎数据目录(settings.json / identity.json / paired.json 所在)
     pub data_dir: PathBuf,
 }

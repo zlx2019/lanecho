@@ -44,6 +44,7 @@ export default function App() {
   const [hotkeyInput, setHotkeyInput] = useState("");
   const [maxEntriesInput, setMaxEntriesInput] = useState(200);
   const [saving, setSaving] = useState(false);
+  const [slotFailures, setSlotFailures] = useState<number[]>([]);
   // 提示自动消隐的定时器: 连续触发时先清旧的, 卸载时统一清理
   const tipTimer = useRef<number | undefined>(undefined);
   const copiedTimer = useRef<number | undefined>(undefined);
@@ -76,6 +77,10 @@ export default function App() {
     api
       .historyUsage()
       .then((v) => alive && setUsage(v))
+      .catch(console.error);
+    api
+      .getSlotHotkeyFailures()
+      .then((v) => alive && setSlotFailures(v))
       .catch(console.error);
     const unsubs: (() => void)[] = [];
     const add = (subscription: Promise<() => void>) => {
@@ -156,6 +161,8 @@ export default function App() {
       setSettings(next);
       setPortInput(next.tcpPort);
       setMaxEntriesInput(next.historyMaxEntries);
+      // 快捷键重注册后刷新槽位冲突提示
+      api.getSlotHotkeyFailures().then(setSlotFailures).catch(console.error);
       if (langChoice !== lang) setLang(langChoice);
       setTip(t.settings.saved);
       clearTimeout(tipTimer.current);
@@ -356,8 +363,19 @@ export default function App() {
             label={t.historySettings.slotHotkeys}
             hint={t.historySettings.slotHotkeysHint}
             checked={settings?.slotHotkeys ?? true}
-            onChange={(v) => patchSettings({ slotHotkeys: v })}
+            onChange={(v) => {
+              patchSettings({ slotHotkeys: v });
+              // 开关切换会重注册快捷键, 稍后刷新冲突提示
+              setTimeout(() => {
+                api.getSlotHotkeyFailures().then(setSlotFailures).catch(console.error);
+              }, 300);
+            }}
           />
+          {(settings?.slotHotkeys ?? true) && slotFailures.length > 0 && (
+            <div className="mt-1 text-[11px] text-alert">
+              {t.historySettings.slotConflict(slotFailures.join("/"))}
+            </div>
+          )}
           <ToggleRow
             label={t.historySettings.incognito}
             hint={t.historySettings.incognitoHint}

@@ -26,6 +26,9 @@ const INDEX_FILE: &str = "index.json";
 const BLOBS_DIR: &str = "blobs";
 /// 图像单条上限(按编码后 PNG 字节判, 方案 14.2 默认值)
 const MAX_IMAGE_PNG_BYTES: usize = 10 * 1024 * 1024;
+/// 文本单条上限(2026-07-17 补充决策): 无上限时一条超大文本会让每次
+/// 落盘/列表/启动加载都背上它, 整个历史子系统持续变慢; 超限跳过记录
+const MAX_TEXT_BYTES: usize = 5 * 1024 * 1024;
 
 /// 内容类型常量(kind 字段)
 pub mod kind {
@@ -216,6 +219,10 @@ impl HistoryStore {
         };
         match content {
             ClipboardContent::Text(text) => {
+                if text.len() > MAX_TEXT_BYTES {
+                    tracing::info!(bytes = text.len(), "文本超过历史单条上限, 跳过记录");
+                    return RecordOutcome::Skipped;
+                }
                 entry.kind = kind::TEXT.to_string();
                 entry.preview = preview_text(&text);
                 entry.text = Some(text);

@@ -92,6 +92,12 @@ pub async fn start_engine(app: tauri::AppHandle, data_dir: PathBuf) -> anyhow::R
     let settings = Settings::load(&data_dir);
     let settings_shared = Arc::new(Mutex::new(settings.clone()));
 
+    // 历史加载(磁盘读 + 孤儿 blob 清扫)与引擎启动(端口绑定/mDNS)
+    // 无依赖: 并行执行缩短启动关键路径, 阻塞 IO 放阻塞线程
+    let history_task = tauri::async_runtime::spawn_blocking({
+        let data_dir = data_dir.clone();
+        move || HistoryStore::load(&data_dir)
+    });
     let (clip_tx, clip_rx) = mpsc::channel(16);
     let (engine, events_rx) = SyncEngine::start(
         EngineConfig {
@@ -108,7 +114,11 @@ pub async fn start_engine(app: tauri::AppHandle, data_dir: PathBuf) -> anyhow::R
     // 接管系统剪贴板监视: 本机复制 → 引擎(变化戳轮询, 决策 #4)
     clipboard::spawn_watcher(clip_tx);
     let engine = Arc::new(engine);
-    let history = Arc::new(HistoryStore::load(&data_dir));
+    let history = Arc::new(
+        history_task
+            .await
+            .map_err(|e| anyhow::anyhow!("历史存储加载任务中断: {e}"))?,
+    );
     let incognito = Arc::new(AtomicBool::new(false));
     let history_tx = spawn_history_worker(
         app.clone(),
@@ -129,6 +139,7 @@ pub async fn start_engine(app: tauri::AppHandle, data_dir: PathBuf) -> anyhow::R
         settings: settings_shared,
         history,
         incognito,
+        slot_hotkey_failures: Mutex::new(Vec::new()),
         data_dir,
     })
 }
@@ -217,9 +228,11 @@ fn spawn_event_pump(deps: PumpDeps) {
                         &texts.pair_request(&peer.name),
                         texts.pair_request_body,
                     );
+                    crate::update_pending_tooltip(&app);
                     emit(&app, events::PAIR_REQUESTED, PeerDto::from(&peer));
                 }
                 EngineEvent::Paired { peer } => {
+                    crate::update_pending_tooltip(&app);
                     emit(&app, events::PAIRED, PeerDto::from(&peer));
                 }
                 EngineEvent::Unpaired { fingerprint } => {

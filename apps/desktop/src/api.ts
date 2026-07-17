@@ -39,4 +39,8 @@ export const api = {
   /** 无痕模式(暂停历史记录, 会话级) */
   setIncognito: (on: boolean) => invoke<void>("set_incognito", { on }),
   getIncognito: () => invoke<boolean>("get_incognito"),
+  /** 面板毛玻璃材质是否生效(true 时前端切换半透明背景变量) */
+  windowEffectsActive: () => invoke<boolean>("window_effects_active"),
+  /** 注册失败的槽位快捷键(Alt+N 的 N; 设置页提示被占用) */
+  getSlotHotkeyFailures: () => invoke<number[]>("get_slot_hotkey_failures"),
 };

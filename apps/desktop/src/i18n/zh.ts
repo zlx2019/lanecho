@@ -81,6 +81,7 @@ export const zh = {
     panelHotkeyHint: "清空则禁用; 保存后生效",
     slotHotkeys: "序号直贴 (Alt+1~6)",
     slotHotkeysHint: "按面板当前排序取前 6 条",
+    slotConflict: (slots: string) => `Alt+${slots} 被其他应用占用, 未生效`,
     usage: (size: string) => `占用 ${size}`,
     incognito: "暂停记录",
     incognitoHint: "开启后不再记入历史(本次会话内有效)",

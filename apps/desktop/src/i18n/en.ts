@@ -82,6 +82,7 @@ export const en = {
     panelHotkeyHint: "Leave empty to disable; applies on save",
     slotHotkeys: "Slot paste (Alt+1~6)",
     slotHotkeysHint: "Top 6 entries in the panel's current order",
+    slotConflict: (slots: string) => `Alt+${slots} taken by another app, not active`,
     usage: (size: string) => `Using ${size}`,
     incognito: "Pause recording",
     incognitoHint: "Nothing is added to history while on (this session only)",

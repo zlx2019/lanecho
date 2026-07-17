@@ -28,7 +28,13 @@ anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 # tray-icon 为内置 feature(非插件); image-png 供托盘模板图标解码
-tauri = { version = "2", features = ["config-toml", "tray-icon", "image-png"] }
+# macos-private-api: 面板毛玻璃需要 transparent 窗口(macOS 上属私有 API 门控)
+tauri = { version = "2", features = [
+    "config-toml",
+    "tray-icon",
+    "image-png",
+    "macos-private-api",
+] }
 tauri-plugin-notification = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-autostart = "2"

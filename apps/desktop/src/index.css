@@ -30,6 +30,22 @@
   --font-gauge: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
 }
 
+/* 毛玻璃模式(仅历史面板文档, 材质确认生效后由前端设 data-vibrancy):
+   底与面板改半透明让系统材质透出; 材质不可用的平台不带此属性,
+   保持上方不透明值, 不漏桌面(deskmate 约定继承) */
+[data-vibrancy],
+[data-vibrancy] body {
+  background: transparent;
+}
+[data-vibrancy] {
+  --color-abyss: rgb(16 20 37 / 0.6);
+  --color-panel: rgb(22 27 48 / 0.72);
+}
+[data-vibrancy][data-theme="light"] {
+  --color-abyss: rgb(238 241 250 / 0.55);
+  --color-panel: rgb(255 255 255 / 0.65);
+}
+
 /* 亮色主题 */
 [data-theme="light"] {
   --color-abyss: #eef1fa;

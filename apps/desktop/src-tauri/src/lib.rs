@@ -19,17 +19,8 @@ use tauri::{Emitter, Manager, RunEvent, WindowEvent};
 
 use state::{AppState, lock};
 
-/// 托盘 ID(重建菜单时按此查找)
+/// 托盘 ID(tooltip 更新时按此查找)
 const TRAY_ID: &str = "main-tray";
-
-/// 最近一次唤起历史面板的时刻(Unix 毫秒)
-///
-/// macOS 在"应用被激活且当时无可见窗口"时会发 RunEvent::Reopen;
-/// 面板唤起经 set_focus 激活应用恰好命中该条件, 若不加区分,
-/// Reopen 处理会把主窗静默 show 在 alwaysOnTop 面板底下 ——
-/// 面板一关设置窗突然露出(真实踩过)。以时间窗区分"面板唤起的
-/// 副产物"与"用户真点 Dock"。
-static LAST_PANEL_SHOW_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// 面板最近一次因失焦被隐藏的时刻(Unix 毫秒)
 ///
@@ -64,6 +55,13 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
+            // 托盘常驻形态(Maccy 同款): 不进 Dock 与 Cmd+Tab, 面板唤起
+            // 不牵动 Dock 图标。顺带根治了曾经的 Reopen 误拉主窗问题 ——
+            // Accessory 应用没有 Dock 图标, RunEvent::Reopen 不再产生,
+            // 原 LAST_PANEL_SHOW_MS 1.5s 时间窗 workaround 一并退役
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
             let data_dir = app.path().app_data_dir()?;
             // 同步等引擎起好: 首个 command 到达时 state 必须已 manage
             let state = tauri::async_runtime::block_on(bridge::start_engine(
@@ -134,29 +132,20 @@ pub fn run() {
             commands::history_usage,
             commands::set_incognito,
             commands::get_incognito,
+            commands::window_effects_active,
+            commands::get_slot_hotkey_failures,
         ])
         .build(tauri::generate_context!())
         .expect("Tauri 应用构建失败");
 
-    app.run(|app_handle, event| match event {
-        // macOS Dock 点击只发 Reopen, 不能靠 window event;
-        // 刚唤起过面板时的 Reopen 是激活副产物(见 LAST_PANEL_SHOW_MS), 忽略
-        #[cfg(target_os = "macos")]
-        RunEvent::Reopen { .. } => {
-            let since_panel = lanecho_core::clipboard::now_ms()
-                .saturating_sub(LAST_PANEL_SHOW_MS.load(std::sync::atomic::Ordering::Relaxed));
-            if since_panel > 1500 {
-                show_main_window(app_handle);
-            }
-        }
-        // 真退出: 引擎优雅关闭(goodbye + mDNS 注销, 对端即时感知下线);
-        // 历史索引同步 flush 一次 —— 异步 save 随进程终止, 最后一批复制会丢
-        RunEvent::Exit => {
+    // 真退出: 引擎优雅关闭(goodbye + mDNS 注销, 对端即时感知下线);
+    // 历史索引同步 flush 一次 —— 异步 save 随进程终止, 最后一批复制会丢
+    app.run(|app_handle, event| {
+        if let RunEvent::Exit = event {
             let state = app_handle.state::<AppState>();
             state.history.save_sync();
             tauri::async_runtime::block_on(state.engine.shutdown());
         }
-        _ => {}
     });
 }
 
@@ -222,10 +211,6 @@ fn show_panel(app: &tauri::AppHandle) {
     if since_blur < 300 {
         return;
     }
-    LAST_PANEL_SHOW_MS.store(
-        lanecho_core::clipboard::now_ms(),
-        std::sync::atomic::Ordering::Relaxed,
-    );
     if let Ok(pos) = app.cursor_position() {
         let (mut x, mut y) = (pos.x, pos.y);
         // 兜底是逻辑尺寸(Tauri.toml 的 380×480), 物理坐标系里要乘缩放
@@ -286,6 +271,9 @@ pub fn apply_hotkeys(app: &tauri::AppHandle, settings: &settings::Settings) -> R
             .map_err(|e| format!("{e:?}"))?;
         shortcuts.register(shortcut).map_err(|e| e.to_string())?;
     }
+    // 逐槽注册并记录失败(被其他应用占用): 设置页据此提示用户,
+    // 否则开关显示开启、按键却无反应, 用户只会以为功能坏了
+    let mut failures = Vec::new();
     if settings.slot_hotkeys {
         for n in 1..=6u8 {
             let parsed: Result<Shortcut, _> = format!("Alt+{n}").parse();
@@ -293,12 +281,17 @@ pub fn apply_hotkeys(app: &tauri::AppHandle, settings: &settings::Settings) -> R
                 Ok(shortcut) => {
                     if let Err(e) = shortcuts.register(shortcut) {
                         tracing::warn!("槽位快捷键 Alt+{n} 注册失败(可能被占用): {e}");
+                        failures.push(n);
                     }
                 }
-                Err(e) => tracing::warn!("槽位快捷键 Alt+{n} 解析失败: {e:?}"),
+                Err(e) => {
+                    tracing::warn!("槽位快捷键 Alt+{n} 解析失败: {e:?}");
+                    failures.push(n);
+                }
             }
         }
     }
+    *lock(&app.state::<AppState>().slot_hotkey_failures) = failures;
     Ok(())
 }
 
@@ -341,43 +334,56 @@ fn handle_shortcut(app: &tauri::AppHandle, shortcut: &tauri_plugin_global_shortc
     }
 }
 
-/// 构建托盘菜单(语言与勾选状态在创建时固定, 变化时整体重建)
-fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
-    let texts = locale::current(app);
-    let state = app.state::<AppState>();
-    let sync_enabled = lock(&state.settings).sync_enabled;
-    let incognito = state.incognito.load(std::sync::atomic::Ordering::Relaxed);
-    let sync = CheckMenuItem::with_id(
-        app,
-        "toggle_sync",
-        texts.tray_sync,
-        true,
-        sync_enabled,
-        None::<&str>,
-    )?;
-    let pause = CheckMenuItem::with_id(
-        app,
-        "incognito",
-        texts.tray_incognito,
-        true,
-        incognito,
-        None::<&str>,
-    )?;
-    let history = MenuItem::with_id(app, "history", texts.tray_history, true, None::<&str>)?;
-    let open = MenuItem::with_id(app, "settings", texts.tray_settings, true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", texts.tray_quit, true, None::<&str>)?;
-    Menu::with_items(app, &[&sync, &pause, &history, &open, &quit])
+/// 托盘菜单项句柄(原位更新用, setup_tray 后 manage)
+///
+/// Linux 上 `set_menu` 整替不生效(tauri 文档明示: 菜单一经设置不可
+/// 移除/替换, 只能改内容), 勾选态与语言文案全部经句柄原位更新。
+struct TrayMenu {
+    /// 同步开关(勾选)
+    sync: CheckMenuItem<tauri::Wry>,
+    /// 无痕开关(勾选)
+    incognito: CheckMenuItem<tauri::Wry>,
+    /// 历史面板入口(Linux 托盘不发左键事件, 菜单是那里的主入口, 故居首)
+    history: MenuItem<tauri::Wry>,
+    /// 打开设置
+    settings: MenuItem<tauri::Wry>,
+    /// 退出
+    quit: MenuItem<tauri::Wry>,
 }
 
-/// 重建托盘菜单(语言切换 / 同步开关变化后调用)
+/// 原位刷新托盘菜单(语言 / 同步开关 / 无痕状态变化后调用)
 pub fn refresh_tray_menu(app: &tauri::AppHandle) {
-    let result = build_tray_menu(app).and_then(|menu| match app.tray_by_id(TRAY_ID) {
-        Some(tray) => tray.set_menu(Some(menu)),
-        None => Ok(()),
-    });
-    if let Err(e) = result {
-        tracing::warn!("托盘菜单重建失败: {e}");
-    }
+    let Some(items) = app.try_state::<TrayMenu>() else {
+        return;
+    };
+    let texts = locale::current(app);
+    let state = app.state::<AppState>();
+    let _ = items.sync.set_text(texts.tray_sync);
+    let _ = items.sync.set_checked(lock(&state.settings).sync_enabled);
+    let _ = items.incognito.set_text(texts.tray_incognito);
+    let _ = items
+        .incognito
+        .set_checked(state.incognito.load(std::sync::atomic::Ordering::Relaxed));
+    let _ = items.history.set_text(texts.tray_history);
+    let _ = items.settings.set_text(texts.tray_settings);
+    let _ = items.quit.set_text(texts.tray_quit);
+}
+
+/// 按待决配对数刷新托盘 tooltip
+///
+/// Accessory 形态没有 Dock 角标可用, 系统通知又易逝 —— 托盘悬停提示
+/// 是错过通知后仅存的持久线索。
+pub fn update_pending_tooltip(app: &tauri::AppHandle) {
+    let Some(tray) = app.tray_by_id(TRAY_ID) else {
+        return;
+    };
+    let pending = app.state::<AppState>().engine.pending_pair_requests().len();
+    let tooltip = if pending > 0 {
+        locale::current(app).tray_pending(pending)
+    } else {
+        "lanecho".to_string()
+    };
+    let _ = tray.set_tooltip(Some(tooltip));
 }
 
 /// 托盘菜单里切换同步开关(与设置窗共享 settings.sync_enabled)
@@ -400,9 +406,44 @@ fn toggle_sync_from_tray(app: &tauri::AppHandle) {
     let _ = app.emit(bridge::events::SYNC_STATE, enabled);
 }
 
-/// 创建系统托盘: 左键唤窗, 右键菜单(同步开关 / 打开设置 / 退出)
+/// 创建系统托盘: 左键唤面板, 右键菜单(历史 / 开关 / 设置 / 退出)
 fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
-    let menu = build_tray_menu(app)?;
+    let texts = locale::current(app);
+    let state = app.state::<AppState>();
+    let items = TrayMenu {
+        sync: CheckMenuItem::with_id(
+            app,
+            "toggle_sync",
+            texts.tray_sync,
+            true,
+            lock(&state.settings).sync_enabled,
+            None::<&str>,
+        )?,
+        incognito: CheckMenuItem::with_id(
+            app,
+            "incognito",
+            texts.tray_incognito,
+            true,
+            state.incognito.load(std::sync::atomic::Ordering::Relaxed),
+            None::<&str>,
+        )?,
+        history: MenuItem::with_id(app, "history", texts.tray_history, true, None::<&str>)?,
+        settings: MenuItem::with_id(app, "settings", texts.tray_settings, true, None::<&str>)?,
+        quit: MenuItem::with_id(app, "quit", texts.tray_quit, true, None::<&str>)?,
+    };
+    // "历史"居首: Linux 托盘不发左键点击事件(tauri 文档明示), 菜单
+    // 首项是 Linux 用户唤起面板的主入口
+    let menu = Menu::with_items(
+        app,
+        &[
+            &items.history,
+            &items.sync,
+            &items.incognito,
+            &items.settings,
+            &items.quit,
+        ],
+    )?;
+    app.manage(items);
     let mut tray = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)
         // 左键唤窗、右键弹菜单(不设则左键弹菜单)

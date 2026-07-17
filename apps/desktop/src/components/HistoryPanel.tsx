@@ -47,6 +47,21 @@ export function HistoryPanel() {
     }
   }, [setLang]);
 
+  // 毛玻璃材质生效时切半透明背景([data-vibrancy] 变量), 并清掉
+  // index.html 防白闪脚本设置的不透明底色 —— 材质不可用的平台保持
+  // 不透明变量, 透明窗不会漏出桌面(deskmate 约定)
+  useEffect(() => {
+    if (!hasTauri) return;
+    api
+      .windowEffectsActive()
+      .then((active) => {
+        if (!active) return;
+        document.documentElement.dataset.vibrancy = "1";
+        document.documentElement.style.background = "transparent";
+      })
+      .catch(console.error);
+  }, []);
+
   useEffect(() => {
     if (!hasTauri) return;
     let alive = true;
