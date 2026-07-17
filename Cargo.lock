@@ -2297,7 +2297,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "lanecho-core",
- "png 0.17.16",
+ "png 0.18.1",
  "serde",
  "serde_json",
  "tauri",
