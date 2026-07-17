@@ -11,6 +11,7 @@
 //! - 文件类型只存路径引用(剪贴板本身即引用, 方案 14.1), 源文件删除后条目失效
 //! - 文本逐字节原样内联(仓库铁律), 截断/转义只发生在 preview 展示层
 
+use std::collections::HashSet;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -25,6 +26,9 @@ const INDEX_FILE: &str = "index.json";
 const BLOBS_DIR: &str = "blobs";
 /// 图像单条上限(按编码后 PNG 字节判, 方案 14.2 默认值)
 const MAX_IMAGE_PNG_BYTES: usize = 10 * 1024 * 1024;
+/// 文本单条上限(2026-07-17 补充决策): 无上限时一条超大文本会让每次
+/// 落盘/列表/启动加载都背上它, 整个历史子系统持续变慢; 超限跳过记录
+const MAX_TEXT_BYTES: usize = 5 * 1024 * 1024;
 
 /// 内容类型常量(kind 字段)
 pub mod kind {
@@ -122,20 +126,43 @@ pub struct HistoryStore {
     /// 落盘串行锁(deskmate history 同款): 并发 save 交错写同一临时文件
     /// 会产生撕裂的 index.json, load 把损坏当空表 —— 静默丢掉全部历史
     io_lock: Arc<Mutex<()>>,
+    /// 已有排队写者标记: 写者在锁内取最新快照, 爆发式连续变更只需一次
+    /// 落盘 —— 重复排队是纯冗余(N 次全量写盘 + N 条阻塞线程排队)
+    save_pending: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl HistoryStore {
     /// 从数据目录加载(缺失/损坏按空表)
     pub fn load(data_dir: &Path) -> Self {
         let dir = data_dir.join("history");
-        let entries = std::fs::read(dir.join(INDEX_FILE))
+        let entries: Vec<HistoryEntry> = std::fs::read(dir.join(INDEX_FILE))
             .ok()
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or_default();
+        // 孤儿 blob 清理: blob 落盘与 index 落盘非原子, 崩溃/清空竞态会留下
+        // 无条目引用的 blob(占用统计虚高且永不回收); 启动时一次性扫掉。
+        // 在构造期同步执行, 与首次 record 无并发窗口。
+        let referenced: HashSet<&str> = entries
+            .iter()
+            .filter_map(|e| e.blob_hash.as_deref())
+            .collect();
+        if let Ok(blobs) = std::fs::read_dir(dir.join(BLOBS_DIR)) {
+            for file in blobs.flatten() {
+                let name = file.file_name();
+                let Some(hash) = name.to_str().and_then(|n| n.strip_suffix(".png")) else {
+                    continue;
+                };
+                if !referenced.contains(hash) {
+                    tracing::info!(hash, "清理孤儿图像 blob");
+                    let _ = std::fs::remove_file(file.path());
+                }
+            }
+        }
         Self {
             dir,
             entries: Arc::new(Mutex::new(entries)),
             io_lock: Arc::new(Mutex::new(())),
+            save_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 
@@ -147,17 +174,19 @@ impl HistoryStore {
     /// 记录一次剪贴板内容(事件泵串行调用, 无并发窗口)
     ///
     /// 图像的 PNG 编码在锁外阻塞线程执行; `content_hash` 由调用方传入
-    /// (watcher/引擎已算过, 免重复哈希大图)。
+    /// (watcher/引擎已算过, 免重复哈希大图)。按值接收: worker 本就
+    /// 拥有内容所有权, 文本/像素直接 move 进条目与编码闭包, 大图少一份
+    /// 全量拷贝(4K 截图 RGBA ≈ 33MB 峰值)。
     pub async fn record(
         &self,
-        content: &ClipboardContent,
+        content: ClipboardContent,
         content_hash: &str,
         at: u64,
         origin: Option<String>,
         cfg: HistoryConfig,
     ) -> RecordOutcome {
         // 类型开关
-        let enabled = match content {
+        let enabled = match &content {
             ClipboardContent::Text(_) => cfg.record_text,
             ClipboardContent::Image { .. } => cfg.record_images,
             ClipboardContent::Files(_) => cfg.record_files,
@@ -190,9 +219,13 @@ impl HistoryStore {
         };
         match content {
             ClipboardContent::Text(text) => {
+                if text.len() > MAX_TEXT_BYTES {
+                    tracing::info!(bytes = text.len(), "文本超过历史单条上限, 跳过记录");
+                    return RecordOutcome::Skipped;
+                }
                 entry.kind = kind::TEXT.to_string();
-                entry.preview = preview_text(text);
-                entry.text = Some(text.clone());
+                entry.preview = preview_text(&text);
+                entry.text = Some(text);
             }
             ClipboardContent::Image {
                 width,
@@ -205,8 +238,6 @@ impl HistoryStore {
                     tracing::info!(bytes = rgba.len(), "图像原始数据过大, 跳过历史记录");
                     return RecordOutcome::Skipped;
                 }
-                let (width, height) = (*width, *height);
-                let rgba = rgba.clone();
                 let png =
                     tauri::async_runtime::spawn_blocking(move || encode_png(width, height, &rgba))
                         .await
@@ -229,9 +260,15 @@ impl HistoryStore {
                 entry.blob_hash = Some(content_hash.to_string());
             }
             ClipboardContent::Files(paths) => {
+                // 非 UTF-8 路径 serde 序列化会失败, 连累整个 index 无法落盘;
+                // lossy 转换后也无法可靠还原路径 —— 直接跳过(极罕见输入)
+                if paths.iter().any(|p| p.to_str().is_none()) {
+                    tracing::info!("文件路径含非 UTF-8 字节, 跳过历史记录");
+                    return RecordOutcome::Skipped;
+                }
                 entry.kind = kind::FILES.to_string();
-                entry.preview = preview_files(paths);
-                entry.files = Some(paths.clone());
+                entry.preview = preview_files(&paths);
+                entry.files = Some(paths);
             }
         }
         // 插入并淘汰
@@ -342,7 +379,7 @@ impl HistoryStore {
     /// 读取图像条目并解码为 RGBA(选中复制的还原路径)
     pub fn load_image_rgba(&self, blob_hash: &str) -> std::io::Result<(usize, usize, Vec<u8>)> {
         let bytes = std::fs::read(self.blob_path(blob_hash))?;
-        decode_png(&bytes).map_err(|e| std::io::Error::other(e.to_string()))
+        decode_png(&bytes)
     }
 
     /// blob 文件路径(哈希已由引擎侧保证为 hex, 无路径注入面)
@@ -375,45 +412,62 @@ impl HistoryStore {
     /// - io_lock 串行化写盘(deskmate history 同款), 且**锁内**才取快照 ——
     ///   排队的写者总是写当时最新的内存态, 旧快照不会覆盖新数据
     fn save(&self) {
+        use std::sync::atomic::Ordering;
+        // 已有写者排队即跳过: 它会在锁内取到含本次变更的最新快照
+        if self.save_pending.swap(true, Ordering::AcqRel) {
+            return;
+        }
         let entries = Arc::clone(&self.entries);
         let io_lock = Arc::clone(&self.io_lock);
+        let pending = Arc::clone(&self.save_pending);
         let dir = self.dir.clone();
         tauri::async_runtime::spawn_blocking(move || {
             let _guard = io_lock.lock().unwrap_or_else(PoisonError::into_inner);
-            let snapshot = entries
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .clone();
-            let write = || -> std::io::Result<()> {
-                std::fs::create_dir_all(&dir)?;
-                let tmp = dir.join(format!("{INDEX_FILE}.tmp"));
-                std::fs::write(
-                    &tmp,
-                    serde_json::to_vec_pretty(&snapshot).unwrap_or_default(),
-                )?;
-                std::fs::rename(&tmp, dir.join(INDEX_FILE))?;
-                Ok(())
-            };
-            if let Err(e) = write() {
-                tracing::warn!("历史索引落盘失败(内存态仍生效): {e}");
-            }
+            // 必须先复位再取快照: 复位之后到来的变更会排下一个写者,
+            // 而本次快照(复位后取)已覆盖复位前的全部变更 —— 无丢失窗口
+            pending.store(false, Ordering::Release);
+            write_index_snapshot(&entries, &dir);
         });
     }
 
-    /// 同步落盘一次(测试与退出路径用)
-    #[cfg(test)]
-    fn save_sync(&self) {
-        let snapshot = self.lock().clone();
-        let _ = std::fs::create_dir_all(&self.dir);
-        let _ = std::fs::write(
-            self.dir.join(INDEX_FILE),
-            serde_json::to_vec_pretty(&snapshot).unwrap_or_default(),
-        );
+    /// 同步落盘一次(退出 flush 与测试用; 与异步路径共享串行锁)
+    pub fn save_sync(&self) {
+        let _guard = self.io_lock.lock().unwrap_or_else(PoisonError::into_inner);
+        write_index_snapshot(&self.entries, &self.dir);
+    }
+}
+
+/// 取最新快照并原子写盘(调用方须已持有 io 串行锁)
+///
+/// 序列化失败**绝不写盘**: 曾经的 `unwrap_or_default()` 会把 Err 变成
+/// 空字节原子覆盖 index.json —— 等于静默清空全部历史(含固定条目)。
+fn write_index_snapshot(entries: &Mutex<Vec<HistoryEntry>>, dir: &Path) {
+    let snapshot = entries
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone();
+    let bytes = match serde_json::to_vec_pretty(&snapshot) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            tracing::warn!("历史索引序列化失败, 跳过本次落盘(内存态仍生效): {e}");
+            return;
+        }
+    };
+    let write = || -> std::io::Result<()> {
+        std::fs::create_dir_all(dir)?;
+        let tmp = dir.join(format!("{INDEX_FILE}.tmp"));
+        std::fs::write(&tmp, &bytes)?;
+        std::fs::rename(&tmp, dir.join(INDEX_FILE))?;
+        Ok(())
+    };
+    if let Err(e) = write() {
+        tracing::warn!("历史索引落盘失败(内存态仍生效): {e}");
     }
 }
 
 /// 文本预览: 首行截 80 字符(仅展示; 存储层保持逐字节原样)
-fn preview_text(text: &str) -> String {
+/// —— 历史条目与同步通知共用同一把尺(bridge 层勿另起炉灶)
+pub fn preview_text(text: &str) -> String {
     let first_line = text.lines().next().unwrap_or_default();
     let preview: String = first_line.chars().take(80).collect();
     if preview.len() < text.len() {
@@ -452,11 +506,16 @@ fn encode_png(width: usize, height: usize, rgba: &[u8]) -> Result<Vec<u8>, png::
 }
 
 /// PNG → RGBA 解码(还原到剪贴板用)
-fn decode_png(bytes: &[u8]) -> Result<(usize, usize, Vec<u8>), png::DecodingError> {
+fn decode_png(bytes: &[u8]) -> std::io::Result<(usize, usize, Vec<u8>)> {
     let decoder = png::Decoder::new(Cursor::new(bytes));
-    let mut reader = decoder.read_info()?;
-    let mut buf = vec![0u8; reader.output_buffer_size()];
-    let info = reader.next_frame(&mut buf)?;
+    let mut reader = decoder.read_info().map_err(std::io::Error::other)?;
+    // png 0.18 起返回 Option(尺寸乘积溢出防护); blob 均为本库自编码
+    // 且受 10MB 上限约束, None 只可能来自损坏文件
+    let size = reader
+        .output_buffer_size()
+        .ok_or_else(|| std::io::Error::other("PNG 尺寸异常"))?;
+    let mut buf = vec![0u8; size];
+    let info = reader.next_frame(&mut buf).map_err(std::io::Error::other)?;
     buf.truncate(info.buffer_size());
     // 编码侧固定 RGBA8, 解码回来即原格式
     Ok((info.width as usize, info.height as usize, buf))
@@ -502,12 +561,12 @@ mod tests {
         let store = HistoryStore::load(&dir.0);
         let (c, h) = text("hello");
         assert_eq!(
-            store.record(&c, &h, 100, None, cfg(10)).await,
+            store.record(c.clone(), &h, 100, None, cfg(10)).await,
             RecordOutcome::Added
         );
         assert_eq!(
             store
-                .record(&c, &h, 200, Some("peer".into()), cfg(10))
+                .record(c.clone(), &h, 200, Some("peer".into()), cfg(10))
                 .await,
             RecordOutcome::Bumped
         );
@@ -526,13 +585,13 @@ mod tests {
         let (a, ha) = text("a");
         let (b, hb) = text("b");
         let (c, hc) = text("c");
-        store.record(&a, &ha, 1, None, cfg(2)).await;
-        store.record(&b, &hb, 2, None, cfg(2)).await;
+        store.record(a.clone(), &ha, 1, None, cfg(2)).await;
+        store.record(b.clone(), &hb, 2, None, cfg(2)).await;
         // 固定最旧的 a
         let id_a = store.list("recent").last().unwrap().id.clone();
         assert!(store.set_pinned(&id_a, true));
         // 插入 c 触发淘汰: 未固定中最旧的 b 被移除, a(固定)幸存
-        store.record(&c, &hc, 3, None, cfg(2)).await;
+        store.record(c.clone(), &hc, 3, None, cfg(2)).await;
         let hashes: Vec<String> = store
             .list("recent")
             .iter()
@@ -557,7 +616,7 @@ mod tests {
         };
         let hash = content.hash();
         assert_eq!(
-            store.record(&content, &hash, 1, None, cfg(10)).await,
+            store.record(content.clone(), &hash, 1, None, cfg(10)).await,
             RecordOutcome::Added
         );
 
@@ -580,9 +639,9 @@ mod tests {
         let store = HistoryStore::load(&dir.0);
         let (a, ha) = text("a");
         let (b, hb) = text("b");
-        store.record(&a, &ha, 1, None, cfg(10)).await;
-        store.record(&b, &hb, 2, None, cfg(10)).await;
-        store.record(&a, &ha, 3, None, cfg(10)).await; // a: count 2, 最新
+        store.record(a.clone(), &ha, 1, None, cfg(10)).await;
+        store.record(b.clone(), &hb, 2, None, cfg(10)).await;
+        store.record(a.clone(), &ha, 3, None, cfg(10)).await; // a: count 2, 最新
 
         // recent: a(3) 在前
         assert_eq!(store.list("recent")[0].content_hash, ha);
@@ -612,7 +671,7 @@ mod tests {
             ..cfg(10)
         };
         assert_eq!(
-            store.record(&c, &h, 1, None, off).await,
+            store.record(c.clone(), &h, 1, None, off).await,
             RecordOutcome::Skipped
         );
         assert!(store.list("recent").is_empty());
@@ -624,7 +683,7 @@ mod tests {
         let dir = TempDir::new();
         let store = HistoryStore::load(&dir.0);
         let (c, h) = text("keep");
-        store.record(&c, &h, 1, None, cfg(10)).await;
+        store.record(c.clone(), &h, 1, None, cfg(10)).await;
         store.save_sync();
         let reloaded = HistoryStore::load(&dir.0);
         assert_eq!(reloaded.list("recent").len(), 1);
@@ -642,7 +701,7 @@ mod tests {
             rgba: vec![1, 2, 3, 4],
         };
         let hash = content.hash();
-        store.record(&content, &hash, 1, None, cfg(10)).await;
+        store.record(content.clone(), &hash, 1, None, cfg(10)).await;
         assert!(store.blob_path(&hash).exists());
         store.clear();
         assert!(store.list("recent").is_empty());

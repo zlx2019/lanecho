@@ -1,7 +1,7 @@
 // Tauri commands 的类型化封装
 
 import { invoke } from "@tauri-apps/api/core";
-import type { DeviceDto, HistoryEntryDto, SelfInfoDto, Settings } from "./types";
+import type { DeviceDto, HistoryEntryDto, PeerDto, SelfInfoDto, Settings } from "./types";
 
 export const api = {
   /** 本机信息 */
@@ -19,12 +19,16 @@ export const api = {
   /** 回应入站配对请求(对应 pair-requested 事件) */
   respondPair: (fingerprint: string, accept: boolean) =>
     invoke<void>("respond_pair", { fingerprint, accept }),
+  /** 待决配对请求快照(挂载补拉, 补启动窗口期丢失的事件) */
+  listPendingPairs: () => invoke<PeerDto[]>("list_pending_pairs"),
   /** 解除配对 */
   unpairDevice: (fingerprint: string) => invoke<void>("unpair_device", { fingerprint }),
-  /** 历史: 列表(按设置排序, pinned 恒顶) */
-  listHistory: (sort: string) => invoke<HistoryEntryDto[]>("list_history", { sort }),
+  /** 历史: 列表(排序方式后端读设置, pinned 恒顶) */
+  listHistory: () => invoke<HistoryEntryDto[]>("list_history"),
   /** 历史: 选中条目还原写入剪贴板(视同用户复制, 会正常广播) */
   copyHistoryEntry: (id: string) => invoke<void>("copy_history_entry", { id }),
+  /** 收起历史面板(Rust 侧统一收口: macOS 顺带归还焦点给前一应用) */
+  hidePanel: () => invoke<void>("hide_panel"),
   /** 历史: 删除单条 / 清空 / 固定 */
   deleteHistoryEntry: (id: string) => invoke<void>("delete_history_entry", { id }),
   clearHistory: () => invoke<void>("clear_history"),
@@ -35,4 +39,8 @@ export const api = {
   /** 无痕模式(暂停历史记录, 会话级) */
   setIncognito: (on: boolean) => invoke<void>("set_incognito", { on }),
   getIncognito: () => invoke<boolean>("get_incognito"),
+  /** 面板毛玻璃材质是否生效(true 时前端切换半透明背景变量) */
+  windowEffectsActive: () => invoke<boolean>("window_effects_active"),
+  /** 注册失败的槽位快捷键(Alt+N 的 N; 设置页提示被占用) */
+  getSlotHotkeyFailures: () => invoke<number[]>("get_slot_hotkey_failures"),
 };

@@ -13,8 +13,8 @@ use tokio_rustls::{TlsAcceptor, TlsConnector};
 
 use crate::PROTOCOL_VERSION;
 use crate::config::{
-    CONNECT_TIMEOUT, HANDSHAKE_TIMEOUT, MAX_CONCURRENT_CONNECTIONS, PAIR_DECISION_TIMEOUT,
-    REPLY_TIMEOUT,
+    CONNECT_TIMEOUT, HANDSHAKE_TIMEOUT, IDLE_TIMEOUT, MAX_CONCURRENT_CONNECTIONS,
+    PAIR_DECISION_TIMEOUT, REPLY_TIMEOUT,
 };
 use crate::discovery::Peer;
 use crate::identity::DeviceIdentity;
@@ -50,6 +50,9 @@ async fn connect_peer(
 ) -> Result<tokio_rustls::client::TlsStream<TcpStream>, SyncError> {
     let config = tls::client_config(identity, Some(peer.info.fingerprint.clone()))?;
     let connector = TlsConnector::from(Arc::new(config));
+    // ServerName 仅为 API 要求(常量输入不可能失败), 校验走指纹 pin(见 tls 模块)
+    let name = rustls_pki_types::ServerName::try_from("lanecho")
+        .map_err(|_| SyncError::PeerUnreachable)?;
     for addr in &peer.addrs {
         let Ok(Ok(tcp)) =
             tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect((*addr, peer.port))).await
@@ -57,11 +60,7 @@ async fn connect_peer(
             continue;
         };
         let _ = tcp.set_nodelay(true);
-        // ServerName 仅为 API 要求, 校验走指纹 pin(见 tls 模块)
-        let Ok(name) = rustls_pki_types::ServerName::try_from("lanecho") else {
-            continue;
-        };
-        match connector.connect(name, tcp).await {
+        match connector.connect(name.clone(), tcp).await {
             Ok(stream) => return Ok(stream),
             Err(e) => {
                 tracing::debug!(%addr, "TLS 连接失败, 尝试下一候选地址: {e}");
@@ -232,9 +231,13 @@ async fn serve_conn(inner: Arc<Inner>, acceptor: TlsAcceptor, tcp: TcpStream) {
         }
     };
 
-    // 事务循环: 对端通常单事务即 Bye; 读失败(断连)直接收尾
+    // 事务循环: 对端通常单事务即 Bye; 读失败(断连)直接收尾。
+    // 帧间隙限时: 半开连接不得占着配额挂死(PairRequest 的 300s 人在环
+    // 等待发生在 decide_pair 内部, 不受此超时影响)
     loop {
-        let Ok(msg) = protocol::read_frame(&mut stream).await else {
+        let Ok(Ok(msg)) =
+            tokio::time::timeout(IDLE_TIMEOUT, protocol::read_frame(&mut stream)).await
+        else {
             break;
         };
         match msg {

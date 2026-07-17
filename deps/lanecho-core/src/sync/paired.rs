@@ -60,8 +60,13 @@ impl PairedStore {
         self.map.contains_key(fingerprint)
     }
 
-    /// 写入一条配对(幂等; 已存在时刷新名称)并返回落盘快照
-    pub(crate) fn insert(&mut self, info: &PeerInfo) -> (PathBuf, Vec<PairedPeer>) {
+    /// 落盘路径
+    pub(crate) fn path(&self) -> PathBuf {
+        self.path.clone()
+    }
+
+    /// 写入一条配对(幂等; 已存在时刷新名称)
+    pub(crate) fn insert(&mut self, info: &PeerInfo) {
         self.map.insert(
             info.fingerprint.clone(),
             PairedPeer {
@@ -71,13 +76,11 @@ impl PairedStore {
                 paired_at_ms: now_ms(),
             },
         );
-        (self.path.clone(), self.list())
     }
 
-    /// 移除一条配对; 返回是否存在过与落盘快照
-    pub(crate) fn remove(&mut self, fingerprint: &str) -> (bool, PathBuf, Vec<PairedPeer>) {
-        let existed = self.map.remove(fingerprint).is_some();
-        (existed, self.path.clone(), self.list())
+    /// 移除一条配对; 返回是否存在过
+    pub(crate) fn remove(&mut self, fingerprint: &str) -> bool {
+        self.map.remove(fingerprint).is_some()
     }
 
     /// 全部配对记录(名称序稳定输出)
@@ -88,23 +91,27 @@ impl PairedStore {
     }
 }
 
-/// 异步落盘(原子写: 临时文件 + rename), 失败仅告警 —— 内存表仍然生效,
-/// 代价是进程重启后丢这次变更, 不值得让配对操作整体失败
-pub(crate) fn persist(path: PathBuf, list: Vec<PairedPeer>) {
-    tokio::task::spawn_blocking(move || {
-        let write = || -> std::io::Result<()> {
-            if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            let tmp = path.with_extension("json.tmp");
-            std::fs::write(&tmp, serde_json::to_vec_pretty(&list).unwrap_or_default())?;
-            std::fs::rename(&tmp, &path)?;
-            Ok(())
+/// 同步写盘一份快照(原子写: 临时文件 + rename), 失败仅告警 —— 内存表
+/// 仍然生效, 不值得让配对操作整体失败。调用方负责串行化(阻塞线程 +
+/// io 锁, 见 `Inner::persist_paired`), 本函数只管一次完整写入。
+pub(crate) fn write_snapshot(path: &Path, list: &[PairedPeer]) {
+    let write = || -> std::io::Result<()> {
+        // 序列化失败(理论不可达: 字段全 String/u64)绝不能拿空内容覆盖正式文件
+        let Ok(bytes) = serde_json::to_vec_pretty(list) else {
+            tracing::warn!("配对表序列化失败, 跳过本次落盘");
+            return Ok(());
         };
-        if let Err(e) = write() {
-            tracing::warn!("配对表落盘失败(内存态仍生效): {e}");
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
         }
-    });
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&tmp, bytes)?;
+        std::fs::rename(&tmp, path)?;
+        Ok(())
+    };
+    if let Err(e) = write() {
+        tracing::warn!("配对表落盘失败(内存态仍生效): {e}");
+    }
 }
 
 #[cfg(test)]
@@ -145,9 +152,8 @@ mod tests {
         let mut store = PairedStore::load(&dir.0);
         assert!(!store.contains("aaa"));
 
-        let (path, list) = store.insert(&info("aaa", "A"));
-        // 同步等待落盘完成(测试内直接写, 不走 fire-and-forget)
-        std::fs::write(&path, serde_json::to_vec_pretty(&list).unwrap()).unwrap();
+        store.insert(&info("aaa", "A"));
+        write_snapshot(&store.path(), &store.list());
 
         let store2 = PairedStore::load(&dir.0);
         assert!(store2.contains("aaa"));
@@ -155,11 +161,9 @@ mod tests {
         assert_eq!(store2.list()[0].name, "A");
 
         let mut store3 = store2;
-        let (existed, _, list) = store3.remove("aaa");
-        assert!(existed);
-        assert!(list.is_empty());
-        let (existed, _, _) = store3.remove("aaa");
-        assert!(!existed);
+        assert!(store3.remove("aaa"));
+        assert!(store3.list().is_empty());
+        assert!(!store3.remove("aaa"));
     }
 
     /// 损坏的 paired.json 按空表处理, 不 panic

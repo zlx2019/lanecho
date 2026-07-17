@@ -103,6 +103,9 @@ export function formatError(e: unknown): string {
     const { code, detail } = e as { code: string; detail?: string };
     const msg = errorText(code, detail);
     if (msg) return msg;
+    // i18n 未收录的码(Rust 侧新增漏更文案时): 展示原始码, 不落到
+    // String(e) 的 "[object Object]"
+    return detail ? `${code}: ${detail}` : code;
   }
   return String(e);
 }

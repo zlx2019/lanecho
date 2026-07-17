@@ -59,6 +59,8 @@ pub struct ShellTexts {
     pub pair_request_body: &'static str,
     /// 通知标题模板: 已从对端同步({name} = 来源昵称)
     synced_from: &'static str,
+    /// 托盘 tooltip 模板: 待决配对({n} = 数量)
+    tray_pending: &'static str,
 }
 
 impl ShellTexts {
@@ -70,6 +72,11 @@ impl ShellTexts {
     /// 组装"已从 X 同步"通知标题
     pub fn synced_from(&self, name: &str) -> String {
         self.synced_from.replace("{name}", name)
+    }
+
+    /// 组装"N 个配对请求待处理"托盘提示
+    pub fn tray_pending(&self, n: usize) -> String {
+        self.tray_pending.replace("{n}", &n.to_string())
     }
 }
 
@@ -83,6 +90,7 @@ const ZH: ShellTexts = ShellTexts {
     pair_request: "{name} 请求配对",
     pair_request_body: "打开 lanecho 接受或拒绝",
     synced_from: "已从 {name} 同步",
+    tray_pending: "lanecho — {n} 个配对请求待处理",
 };
 
 /// 英文文案
@@ -95,6 +103,7 @@ const EN: ShellTexts = ShellTexts {
     pair_request: "Pairing request from {name}",
     pair_request_body: "Open lanecho to accept or decline",
     synced_from: "Synced from {name}",
+    tray_pending: "lanecho — {n} pairing request(s) pending",
 };
 
 /// 按语言取文案表

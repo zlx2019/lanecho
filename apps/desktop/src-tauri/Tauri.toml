@@ -18,6 +18,10 @@ devUrl = "http://localhost:1420"
 beforeBuildCommand = "pnpm build"
 frontendDist = "../dist"
 
+# 面板 transparent 窗口在 macOS 上需要私有 API 门控(Cargo feature 同名开启)
+[app]
+macOSPrivateApi = true
+
 # 内容安全策略(打包版生效, dev 下 Tauri 自动放宽):
 # 默认仅允许自身资源; 图片放行 data:(内联图标);
 # style 需 unsafe-inline(React 行内样式 + Tailwind 注入); Tauri 会自动追加 IPC 所需项
@@ -32,6 +36,8 @@ width = 760
 height = 600
 minWidth = 640
 minHeight = 480
+# 创建时隐藏, 引擎就绪后由 setup 显示(登录自启 --hidden 曾有白窗一闪)
+visible = false
 
 [[app.windows]]
 # 历史浮窗(方案 14.5): 无边框、置顶、失焦即隐, 快捷键/托盘唤起
@@ -44,6 +50,14 @@ decorations = false
 alwaysOnTop = true
 visible = false
 skipTaskbar = true
+# 跟随当前 Space/虚拟桌面: 不设的话, macOS 激活应用会把系统整个切回
+# 面板所在 Space, 全屏/多桌面工作流被打断(Windows 上该项为 no-op)
+visibleOnAllWorkspaces = true
+# 毛玻璃材质(macOS popover 材质, 系统菜单同款; 其余平台忽略该效果)。
+# CSS 侧默认仍画满不透明底, 仅 window_effects_active 确认后才切半透明
+# 变量([data-vibrancy]) —— 防 Win10/Linux 透明窗漏出桌面(deskmate 约定)
+transparent = true
+windowEffects = { effects = ["popover"], state = "active" }
 
 [bundle]
 active = true

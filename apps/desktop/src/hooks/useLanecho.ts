@@ -60,6 +60,20 @@ export function useLanecho(opts?: { onSyncState?: (enabled: boolean) => void }) 
       })
       .catch(console.error);
     refetchDevices();
+    // 配对请求补拉: 本组件挂载前(启动窗口期)到达的 pair-requested
+    // 事件无人监听已丢, 从引擎待决表补进队列, 对端才不会空等超时
+    api
+      .listPendingPairs()
+      .then((pending) => {
+        if (!alive || pending.length === 0) return;
+        setPairRequests((queue) => {
+          const fresh = pending.filter(
+            (p) => !queue.some((r) => r.fingerprint === p.fingerprint),
+          );
+          return fresh.length ? [...queue, ...fresh] : queue;
+        });
+      })
+      .catch(console.error);
 
     // 设备增删与配对状态变化: 统一 refetch(设备数少, 全量拉取简单可靠)
     add(listen(EVENTS.PEER_UP, refetchDevices));

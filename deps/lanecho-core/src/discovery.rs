@@ -542,7 +542,9 @@ impl DiscoveryService {
         if state.passive {
             return;
         }
-        drop(state);
+        // 广播动作保持在 state 锁内, 与 set_passive 互斥: 若在锁外执行,
+        // "读到非隐身 → 并发切入隐身完成注销 → 这里继续 register"会把
+        // 隐身中的机器重新广播出去(mdns-sd register 是命令通道投递, 不阻塞)
         if let Some(udp) = &self.udp {
             // 必须用同步接口: 本方法可能在无 tokio runtime 的线程被调用
             // (如 Tauri 同步命令的 IPC 线程), tokio::spawn 会直接 panic。
@@ -557,8 +559,11 @@ impl DiscoveryService {
         if let Some(daemon) = &self.mdns {
             match build_mdns_service(info, self.tcp_port) {
                 Ok(service) => {
-                    if let Err(e) = daemon.register(service) {
-                        tracing::warn!("mDNS 身份更新失败: {e}");
+                    let fullname = service.get_fullname().to_string();
+                    match daemon.register(service) {
+                        // 同名覆盖语义; 记录最新 fullname 保证后续注销对得上
+                        Ok(()) => state.mdns_fullname = Some(fullname),
+                        Err(e) => tracing::warn!("mDNS 身份更新失败: {e}"),
                     }
                 }
                 Err(e) => tracing::warn!("mDNS 服务信息构造失败: {e}"),

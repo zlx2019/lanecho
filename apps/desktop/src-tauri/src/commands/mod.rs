@@ -228,8 +228,26 @@ pub async fn pair_device(app: tauri::AppHandle, fingerprint: String) -> Result<(
 
 /// 回应入站配对请求(对应 pair-requested 事件)
 #[tauri::command]
-pub fn respond_pair(state: State<'_, AppState>, fingerprint: String, accept: bool) {
-    state.engine.respond_pair(&fingerprint, accept);
+pub fn respond_pair(app: tauri::AppHandle, fingerprint: String, accept: bool) {
+    app.state::<AppState>()
+        .engine
+        .respond_pair(&fingerprint, accept);
+    crate::update_pending_tooltip(&app);
+}
+
+/// 待决的入站配对请求快照
+///
+/// 启动兜底: 事件泵先于前端就绪, 窗口期到达的 pair-requested 事件无人
+/// 监听即丢(对端要空等满超时), 前端挂载时凭此补拉; 其余事件类型均有
+/// list_devices 等快照兜底, 唯配对请求缺这一环。
+#[tauri::command]
+pub fn list_pending_pairs(state: State<'_, AppState>) -> Vec<crate::bridge::PeerDto> {
+    state
+        .engine
+        .pending_pair_requests()
+        .iter()
+        .map(crate::bridge::PeerDto::from)
+        .collect()
 }
 
 /// 解除配对(本地立即生效, 尽力通知对端)
@@ -242,10 +260,20 @@ pub async fn unpair_device(app: tauri::AppHandle, fingerprint: String) -> Result
 
 // ---- 历史剪贴板(M3, 方案 14 节)----
 
-/// 历史条目列表(按设置排序; pinned 恒顶)
+/// 历史条目列表(排序方式后端直接读设置; pinned 恒顶)
 #[tauri::command]
-pub fn list_history(state: State<'_, AppState>, sort: String) -> Vec<crate::history::HistoryEntry> {
+pub fn list_history(state: State<'_, AppState>) -> Vec<crate::history::HistoryEntry> {
+    let sort = lock(&state.settings).history_sort.clone();
     state.history.list(&sort)
+}
+
+/// 收起历史面板(Esc / 选中条目后前端调用)
+///
+/// 走 Rust 侧统一收口: macOS 上需要顺带把焦点归还前一应用(粘贴闭环),
+/// 见 [`crate::hide_panel_impl`]。
+#[tauri::command]
+pub fn hide_panel(app: tauri::AppHandle) {
+    crate::hide_panel_impl(&app);
 }
 
 /// 选中历史条目 → 还原写入系统剪贴板
@@ -284,7 +312,7 @@ pub async fn copy_entry_to_clipboard(app: &tauri::AppHandle, id: &str) -> Result
                 .ok_or_else(|| ErrDto::new("history_missing"))?;
             // 磁盘读取 + PNG 解码是阻塞操作, 移出 async 上下文
             let (width, height, rgba) =
-                tokio::task::spawn_blocking(move || history.load_image_rgba(&hash))
+                tauri::async_runtime::spawn_blocking(move || history.load_image_rgba(&hash))
                     .await
                     .map_err(|e| ErrDto::with("history_missing", e))?
                     .map_err(|e| ErrDto::with("history_missing", e))?;
@@ -307,20 +335,35 @@ pub async fn copy_entry_to_clipboard(app: &tauri::AppHandle, id: &str) -> Result
 }
 
 /// 删除单条历史
+///
+/// async + 阻塞线程: 同步命令跑在主事件循环线程, 直接做磁盘删除
+/// (blob 最大 10MB)会冻结全部窗口的 UI。
 #[tauri::command]
-pub fn delete_history_entry(app: tauri::AppHandle, state: State<'_, AppState>, id: String) {
-    if state.history.delete(&id) {
+pub async fn delete_history_entry(app: tauri::AppHandle, id: String) -> Result<(), ErrDto> {
+    let history = std::sync::Arc::clone(&app.state::<AppState>().history);
+    let deleted = tauri::async_runtime::spawn_blocking(move || history.delete(&id))
+        .await
+        .map_err(|e| ErrDto::with("engine", e))?;
+    if deleted {
         use tauri::Emitter;
         let _ = app.emit(events::HISTORY_CHANGED, ());
     }
+    Ok(())
 }
 
 /// 清空全部历史(含固定条目)
+///
+/// blobs 目录上限约 200×10MB ≈ 2GB, 同步命令在主线程删除会把
+/// 两个窗口整体冻结数秒 —— 必须走阻塞线程。
 #[tauri::command]
-pub fn clear_history(app: tauri::AppHandle, state: State<'_, AppState>) {
-    state.history.clear();
+pub async fn clear_history(app: tauri::AppHandle) -> Result<(), ErrDto> {
+    let history = std::sync::Arc::clone(&app.state::<AppState>().history);
+    tauri::async_runtime::spawn_blocking(move || history.clear())
+        .await
+        .map_err(|e| ErrDto::with("engine", e))?;
     use tauri::Emitter;
     let _ = app.emit(events::HISTORY_CHANGED, ());
+    Ok(())
 }
 
 /// 固定/取消固定历史条目
@@ -338,18 +381,29 @@ pub fn pin_history_entry(
 }
 
 /// 历史占用磁盘字节数(设置页展示)
+///
+/// 全目录 metadata 遍历属磁盘 IO, 不进主线程(每次复制后都会被前端调用)
 #[tauri::command]
-pub fn history_usage(state: State<'_, AppState>) -> u64 {
-    state.history.disk_usage()
+pub async fn history_usage(app: tauri::AppHandle) -> Result<u64, ErrDto> {
+    let history = std::sync::Arc::clone(&app.state::<AppState>().history);
+    tauri::async_runtime::spawn_blocking(move || history.disk_usage())
+        .await
+        .map_err(|e| ErrDto::with("engine", e))
 }
 
 /// 切换无痕模式(暂停历史记录; 会话级不持久化)
 #[tauri::command]
-pub fn set_incognito(app: tauri::AppHandle, state: State<'_, AppState>, on: bool) {
+pub fn set_incognito(app: tauri::AppHandle, on: bool) {
+    set_incognito_inner(&app, on);
+}
+
+/// 无痕切换的共享实现(设置命令与托盘勾选共用, 防两处逻辑漂移)
+pub fn set_incognito_inner(app: &tauri::AppHandle, on: bool) {
+    let state = app.state::<AppState>();
     state
         .incognito
         .store(on, std::sync::atomic::Ordering::Relaxed);
-    crate::refresh_tray_menu(&app);
+    crate::refresh_tray_menu(app);
     use tauri::Emitter;
     let _ = app.emit(events::INCOGNITO_STATE, on);
 }
@@ -358,4 +412,19 @@ pub fn set_incognito(app: tauri::AppHandle, state: State<'_, AppState>, on: bool
 #[tauri::command]
 pub fn get_incognito(state: State<'_, AppState>) -> bool {
     state.incognito.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// 面板毛玻璃材质是否生效(前端据此切换半透明背景变量)
+///
+/// 配置式 windowEffects 无生效回执, 按平台能力判定: macOS(10.15 基线)
+/// 恒可用; 其余平台配置里未声明材质, 保持不透明底(防透明窗漏桌面)。
+#[tauri::command]
+pub fn window_effects_active() -> bool {
+    cfg!(target_os = "macos")
+}
+
+/// 注册失败的槽位快捷键列表(Alt+N 的 N; 设置页提示被占用的槽位)
+#[tauri::command]
+pub fn get_slot_hotkey_failures(state: State<'_, AppState>) -> Vec<u8> {
+    lock(&state.slot_hotkey_failures).clone()
 }

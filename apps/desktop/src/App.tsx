@@ -5,12 +5,13 @@ import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
 import { EVENTS } from "./events";
+import { DeviceList } from "./components/DeviceList";
 import { PairRequestModal } from "./components/PairRequestModal";
 import { Button, ToggleRow } from "./components/ModalShell";
 import { useLanecho } from "./hooks/useLanecho";
 import { formatError, useI18n, type Lang } from "./i18n";
 import { useTheme, type ThemePref } from "./theme";
-import type { DeviceDto, Settings } from "./types";
+import type { Settings } from "./types";
 
 /** 是否在 Tauri 运行时内 */
 const hasTauri = "__TAURI_INTERNALS__" in window;
@@ -37,29 +38,50 @@ export default function App() {
   const [portInput, setPortInput] = useState(0);
   const [langChoice, setLangChoice] = useState<Lang>(lang);
   const [tip, setTip] = useState("");
-  const [pairError, setPairError] = useState("");
-  const [pairingWith, setPairingWith] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [incognito, setIncognito] = useState(false);
   const [usage, setUsage] = useState(0);
   const [hotkeyInput, setHotkeyInput] = useState("");
   const [maxEntriesInput, setMaxEntriesInput] = useState(200);
+  const [saving, setSaving] = useState(false);
+  const [slotFailures, setSlotFailures] = useState<number[]>([]);
+  // 提示自动消隐的定时器: 连续触发时先清旧的, 卸载时统一清理
+  const tipTimer = useRef<number | undefined>(undefined);
+  const copiedTimer = useRef<number | undefined>(undefined);
+  useEffect(
+    () => () => {
+      clearTimeout(tipTimer.current);
+      clearTimeout(copiedTimer.current);
+    },
+    [],
+  );
 
   // 初始加载设置 + 历史占用 + 无痕状态(托盘切换经事件回显)
   useEffect(() => {
     if (!hasTauri) return;
+    let alive = true;
     api
       .getSettings()
       .then((s) => {
+        if (!alive) return;
         setSettings(s);
         setPortInput(s.tcpPort);
         setHotkeyInput(s.panelHotkey);
         setMaxEntriesInput(s.historyMaxEntries);
       })
       .catch(console.error);
-    api.getIncognito().then(setIncognito).catch(console.error);
-    api.historyUsage().then(setUsage).catch(console.error);
-    let alive = true;
+    api
+      .getIncognito()
+      .then((v) => alive && setIncognito(v))
+      .catch(console.error);
+    api
+      .historyUsage()
+      .then((v) => alive && setUsage(v))
+      .catch(console.error);
+    api
+      .getSlotHotkeyFailures()
+      .then((v) => alive && setSlotFailures(v))
+      .catch(console.error);
     const unsubs: (() => void)[] = [];
     const add = (subscription: Promise<() => void>) => {
       subscription
@@ -71,16 +93,26 @@ export default function App() {
         if (alive) setIncognito(e.payload);
       }),
     );
+    // 占用量刷新: 设置窗大多数时间隐藏在托盘后, 隐藏期间跳过磁盘遍历,
+    // 重新可见时补刷一次(节流复制路径上的背景开销)
+    const refreshUsage = () => {
+      api
+        .historyUsage()
+        .then((v) => alive && setUsage(v))
+        .catch(console.error);
+    };
     add(
       listen(EVENTS.HISTORY_CHANGED, () => {
-        api
-          .historyUsage()
-          .then((v) => alive && setUsage(v))
-          .catch(console.error);
+        if (document.visibilityState === "visible") refreshUsage();
       }),
     );
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refreshUsage();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       alive = false;
+      document.removeEventListener("visibilitychange", onVisible);
       unsubs.forEach((u) => u());
     };
   }, []);
@@ -96,7 +128,9 @@ export default function App() {
 
   /** 开关类设置: 即改即存(三个开关统一语义, 与托盘行为一致) */
   const patchSettings = (patch: Partial<Settings>) => {
-    if (!settings) return;
+    // 保存按钮在途时拒绝: 两条路径都整对象落盘, 并发时基于旧快照的
+    // 一方会覆盖另一方刚写入的字段(快捷键还会被重注册回旧值)
+    if (!settings || saving) return;
     const next = { ...settings, ...patch };
     setSettings(next);
     api.saveSettings(next).catch((e) => setTip(formatError(e)));
@@ -104,7 +138,8 @@ export default function App() {
 
   /** 保存设置(名称走独立命令, 其余整体提交) */
   const save = async () => {
-    if (!settings) return;
+    if (!settings || saving) return;
+    setSaving(true);
     setTip("");
     try {
       const trimmed = nickname.trim();
@@ -116,51 +151,40 @@ export default function App() {
       }
       const next: Settings = {
         ...settings,
-        tcpPort: portInput,
+        // 数字输入手输可越界: 提交前夹取到合法域(u16 / 上限 1 万条)
+        tcpPort: Math.min(65535, Math.max(0, Math.round(portInput) || 0)),
         language: langChoice,
         panelHotkey: hotkeyInput.trim(),
-        historyMaxEntries: Math.max(1, maxEntriesInput),
+        historyMaxEntries: Math.min(10000, Math.max(1, Math.round(maxEntriesInput) || 1)),
       };
       await api.saveSettings(next);
       setSettings(next);
+      setPortInput(next.tcpPort);
+      setMaxEntriesInput(next.historyMaxEntries);
+      // 快捷键重注册后刷新槽位冲突提示
+      api.getSlotHotkeyFailures().then(setSlotFailures).catch(console.error);
       if (langChoice !== lang) setLang(langChoice);
       setTip(t.settings.saved);
-      setTimeout(() => setTip(""), 2500);
+      clearTimeout(tipTimer.current);
+      tipTimer.current = window.setTimeout(() => setTip(""), 2500);
     } catch (e) {
       setTip(formatError(e));
-    }
-  };
-
-  /** 发起配对(等待对端确认, 按钮呈等待态) */
-  const pair = async (device: DeviceDto) => {
-    setPairError("");
-    setPairingWith(device.fingerprint);
-    try {
-      await api.pairDevice(device.fingerprint);
-      lanecho.refreshDevices();
-    } catch (e) {
-      setPairError(formatError(e));
     } finally {
-      setPairingWith(null);
+      setSaving(false);
     }
-  };
-
-  /** 解除配对 */
-  const unpair = (device: DeviceDto) => {
-    setPairError("");
-    api
-      .unpairDevice(device.fingerprint)
-      .then(() => lanecho.refreshDevices())
-      .catch((e) => setPairError(formatError(e)));
   };
 
   /** 复制本机指纹 */
   const copyFingerprint = () => {
     if (!lanecho.self) return;
-    navigator.clipboard.writeText(lanecho.self.fingerprint).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
+    navigator.clipboard
+      .writeText(lanecho.self.fingerprint)
+      .then(() => {
+        setCopied(true);
+        clearTimeout(copiedTimer.current);
+        copiedTimer.current = window.setTimeout(() => setCopied(false), 1500);
+      })
+      .catch(console.error);
   };
 
   const themeTitle =
@@ -202,60 +226,8 @@ export default function App() {
           </div>
         </div>
 
-        {/* 设备列表 */}
-        <div className="gauge-label mt-5 mb-2">{t.devices.section}</div>
-        <div className="rounded-xl border border-line bg-panel">
-          {lanecho.devices.length === 0 ? (
-            <div className="px-4 py-6 text-center text-xs text-mist">{t.devices.empty}</div>
-          ) : (
-            lanecho.devices.map((device) => (
-              <div
-                key={device.fingerprint}
-                className="flex items-center gap-3 border-b border-line/40 px-4 py-2.5 last:border-b-0"
-              >
-                <span
-                  className={`size-2 shrink-0 rounded-full ${
-                    device.online ? "anim-breathe bg-live" : "bg-faint"
-                  }`}
-                  title={device.online ? t.devices.online : t.devices.offline}
-                />
-                <div className="min-w-0 flex-1">
-                  <div
-                    className={`truncate text-sm ${device.online ? "text-fog" : "text-mist"}`}
-                  >
-                    {device.name}
-                  </div>
-                  <div className="font-gauge text-[10px] text-mist">
-                    {device.fingerprint.slice(0, 8)}
-                    {device.platform ? ` · ${device.platform}` : ""}
-                    {device.osVersion ? ` · ${device.osVersion}` : ""}
-                  </div>
-                </div>
-                {device.paired && (
-                  <span className="shrink-0 rounded bg-chip px-1.5 py-0.5 text-[10px] text-sonar">
-                    {t.devices.paired}
-                  </span>
-                )}
-                {device.paired ? (
-                  <Button variant="danger" onClick={() => unpair(device)}>
-                    {t.devices.unpair}
-                  </Button>
-                ) : (
-                  device.online && (
-                    <Button
-                      variant="primary"
-                      disabled={pairingWith !== null}
-                      onClick={() => pair(device)}
-                    >
-                      {pairingWith === device.fingerprint ? t.devices.pairing : t.devices.pair}
-                    </Button>
-                  )
-                )}
-              </div>
-            ))
-          )}
-        </div>
-        {pairError && <div className="mt-2 text-xs text-alert">{pairError}</div>}
+        {/* 设备列表(配对交互内聚在组件里) */}
+        <DeviceList devices={lanecho.devices} onChanged={lanecho.refreshDevices} />
 
         {/* 设置 */}
         <div className="gauge-label mt-5 mb-2">{t.settings.section}</div>
@@ -391,8 +363,19 @@ export default function App() {
             label={t.historySettings.slotHotkeys}
             hint={t.historySettings.slotHotkeysHint}
             checked={settings?.slotHotkeys ?? true}
-            onChange={(v) => patchSettings({ slotHotkeys: v })}
+            onChange={(v) => {
+              patchSettings({ slotHotkeys: v });
+              // 开关切换会重注册快捷键, 稍后刷新冲突提示
+              setTimeout(() => {
+                api.getSlotHotkeyFailures().then(setSlotFailures).catch(console.error);
+              }, 300);
+            }}
           />
+          {(settings?.slotHotkeys ?? true) && slotFailures.length > 0 && (
+            <div className="mt-1 text-[11px] text-alert">
+              {t.historySettings.slotConflict(slotFailures.join("/"))}
+            </div>
+          )}
           <ToggleRow
             label={t.historySettings.incognito}
             hint={t.historySettings.incognitoHint}
@@ -405,7 +388,7 @@ export default function App() {
 
           <div className="mt-4 flex items-center justify-end gap-3 border-t border-line pt-3">
             {tip && <span className="max-w-64 truncate text-xs text-mist">{tip}</span>}
-            <Button variant="primary" onClick={save}>
+            <Button variant="primary" onClick={save} disabled={saving}>
               {t.settings.save}
             </Button>
           </div>

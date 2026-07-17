@@ -24,7 +24,16 @@ readme = "README.md"
 [workspace.dependencies]
 # 内部核心依赖
 lanecho-core = { path = "deps/lanecho-core" }
-tokio = { version = "1", features = ["full"] }
+# 显式 feature 列表(非 full): 依赖面精确, 未用的 fs/process/io-std 不参与编译
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "net",
+    "io-util",
+    "sync",
+    "time",
+    "signal",
+] }
 rustls = "0.23"
 tokio-rustls = "0.26"
 rustls-pki-types = "1"
@@ -37,16 +46,19 @@ thiserror = "2"
 anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-uuid = { version = "1", features = ["v4", "serde"] }
+uuid = { version = "1", features = ["v4"] }
 hostname = "0.4"
 os_info = { version = "3", default-features = false }
-socket2 = "0.6"
+# feature "all" 门控着 set_reuse_port: 此前靠 mdns-sd 恰好启用的全局并集
+# 才能编译, 显式声明消除"换掉 mdns-sd 即编译断裂"的隐性耦合
+socket2 = { version = "0.6", features = ["all"] }
 clap = { version = "4", features = ["derive"] }
 # 剪贴板读写(2026-07-17 批准): 纯 Rust 跨平台, tauri-plugin-clipboard-manager 的底层库
 arboard = "3"
 # 历史图像落盘(2026-07-17 批准): 仅 PNG 编解码的轻量单品(image-rs 官方),
-# arboard 给 RGBA 原始位图, 存 PNG 体积小两个量级
-png = "0.17"
+# arboard 给 RGBA 原始位图, 存 PNG 体积小两个量级。
+# 版本与 arboard→image / tauri(image-png)传递的 0.18 对齐, 避免产物里双份 codec
+png = "0.18"
 # macOS 平台绑定: 变化戳 NSPasteboard.changeCount(决策 #4)+ 敏感标记检查(6.3);
 # 与 arboard 的既有传递依赖同源, 不引入新供应链
 objc2 = "0.6"

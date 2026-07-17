@@ -92,6 +92,12 @@ pub async fn start_engine(app: tauri::AppHandle, data_dir: PathBuf) -> anyhow::R
     let settings = Settings::load(&data_dir);
     let settings_shared = Arc::new(Mutex::new(settings.clone()));
 
+    // 历史加载(磁盘读 + 孤儿 blob 清扫)与引擎启动(端口绑定/mDNS)
+    // 无依赖: 并行执行缩短启动关键路径, 阻塞 IO 放阻塞线程
+    let history_task = tauri::async_runtime::spawn_blocking({
+        let data_dir = data_dir.clone();
+        move || HistoryStore::load(&data_dir)
+    });
     let (clip_tx, clip_rx) = mpsc::channel(16);
     let (engine, events_rx) = SyncEngine::start(
         EngineConfig {
@@ -108,7 +114,11 @@ pub async fn start_engine(app: tauri::AppHandle, data_dir: PathBuf) -> anyhow::R
     // 接管系统剪贴板监视: 本机复制 → 引擎(变化戳轮询, 决策 #4)
     clipboard::spawn_watcher(clip_tx);
     let engine = Arc::new(engine);
-    let history = Arc::new(HistoryStore::load(&data_dir));
+    let history = Arc::new(
+        history_task
+            .await
+            .map_err(|e| anyhow::anyhow!("历史存储加载任务中断: {e}"))?,
+    );
     let incognito = Arc::new(AtomicBool::new(false));
     let history_tx = spawn_history_worker(
         app.clone(),
@@ -129,6 +139,7 @@ pub async fn start_engine(app: tauri::AppHandle, data_dir: PathBuf) -> anyhow::R
         settings: settings_shared,
         history,
         incognito,
+        slot_hotkey_failures: Mutex::new(Vec::new()),
         data_dir,
     })
 }
@@ -175,7 +186,7 @@ fn spawn_history_worker(
         while let Some(job) = rx.recv().await {
             let outcome = history
                 .record(
-                    &job.content,
+                    job.content,
                     &job.hash,
                     job.at,
                     job.origin,
@@ -217,9 +228,11 @@ fn spawn_event_pump(deps: PumpDeps) {
                         &texts.pair_request(&peer.name),
                         texts.pair_request_body,
                     );
+                    crate::update_pending_tooltip(&app);
                     emit(&app, events::PAIR_REQUESTED, PeerDto::from(&peer));
                 }
                 EngineEvent::Paired { peer } => {
+                    crate::update_pending_tooltip(&app);
                     emit(&app, events::PAIRED, PeerDto::from(&peer));
                 }
                 EngineEvent::Unpaired { fingerprint } => {
@@ -234,19 +247,20 @@ fn spawn_event_pump(deps: PumpDeps) {
                     if incognito.load(Ordering::Relaxed) {
                         continue;
                     }
-                    let _ = history_tx
-                        .send(HistoryJob {
+                    send_history_job(
+                        &history_tx,
+                        HistoryJob {
                             content,
                             hash,
                             at: timestamp_ms,
                             origin: None,
-                        })
-                        .await;
+                        },
+                    );
                 }
                 EngineEvent::ApplyRemote {
                     text, from, hash, ..
                 } => {
-                    let preview = preview_of(&text);
+                    let preview = crate::history::preview_text(&text);
                     // 装配层落地: 写系统剪贴板(回声哈希已在引擎侧登记);
                     // 失败必须撤销回声登记, 否则孤儿哈希会误吞下一次
                     // 同内容的真实本机复制(ApplyRemote 契约)
@@ -258,14 +272,15 @@ fn spawn_event_pump(deps: PumpDeps) {
                     // 远端写入也计入历史(origin = 来源设备名, 方案 14.1);
                     // 回声事件会被引擎吞掉不经 LocalCopied, 此处是唯一入口
                     if !incognito.load(Ordering::Relaxed) {
-                        let _ = history_tx
-                            .send(HistoryJob {
+                        send_history_job(
+                            &history_tx,
+                            HistoryJob {
                                 content: ClipboardContent::Text(text),
                                 hash,
                                 at: now_ms(),
                                 origin: Some(from.name.clone()),
-                            })
-                            .await;
+                            },
+                        );
                     }
                     let (notify, lang) = {
                         let s = lock(&settings);
@@ -294,6 +309,18 @@ fn spawn_event_pump(deps: PumpDeps) {
     });
 }
 
+/// 投递历史记录任务: 满即丢弃并告警, **绝不 await**
+///
+/// 事件泵是引擎事件的唯一消费者, 在此阻塞会经引擎事件通道背压一路
+/// 传导到 discovery(其通道满时真丢 PeerDown, 设备假在线)与入站会话。
+/// 极端爆发下丢一条历史记录, 远比拖垮实时事件可接受 —— 这才真正兑现
+/// "record 不在关键路径"的设计意图。
+fn send_history_job(history_tx: &mpsc::Sender<HistoryJob>, job: HistoryJob) {
+    if let Err(e) = history_tx.try_send(job) {
+        tracing::warn!("历史记录队列已满, 丢弃一条记录: {e}");
+    }
+}
+
 /// 发 Tauri 事件; 失败仅记日志, 不影响引擎
 fn emit<T: Serialize + Clone>(app: &tauri::AppHandle, event: &str, payload: T) {
     if let Err(e) = app.emit(event, payload) {
@@ -301,28 +328,19 @@ fn emit<T: Serialize + Clone>(app: &tauri::AppHandle, event: &str, payload: T) {
     }
 }
 
-/// 主窗口不在前台时发系统通知(聚焦时应用内已可见, 不打扰)
+/// 应用不在前台时发系统通知(任一窗口聚焦时应用内已可见, 不打扰)
+///
+/// 遍历全部窗口: 只看 main 的话, 用户正在历史面板里操作时照样弹通知
 pub fn notify_if_unfocused(app: &tauri::AppHandle, title: &str, body: &str) {
     use tauri::Manager;
     let focused = app
-        .get_webview_window("main")
-        .and_then(|w| w.is_focused().ok())
-        .unwrap_or(false);
+        .webview_windows()
+        .values()
+        .any(|w| w.is_focused().unwrap_or(false));
     if focused {
         return;
     }
     if let Err(e) = app.notification().builder().title(title).body(body).show() {
         tracing::debug!("系统通知发送失败: {e}");
-    }
-}
-
-/// 文本预览: 首行截前 60 字符(仅展示, 不改原文)
-fn preview_of(text: &str) -> String {
-    let first_line = text.lines().next().unwrap_or_default();
-    let preview: String = first_line.chars().take(60).collect();
-    if preview.len() < text.len() {
-        format!("{preview}…")
-    } else {
-        preview
     }
 }

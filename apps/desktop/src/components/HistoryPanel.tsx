@@ -4,7 +4,7 @@
 // 窗口 label 路由到本组件。选中条目 = 还原写入剪贴板并隐藏面板;
 // 该写入视同用户复制(方案 6.4), watcher 会正常广播与计数。
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api } from "../api";
@@ -18,23 +18,48 @@ const hasTauri = "__TAURI_INTERNALS__" in window;
 
 /** 历史浮窗面板 */
 export function HistoryPanel() {
-  const { t } = useI18n();
+  const { t, setLang } = useI18n();
   // 面板是独立 WebView 文档, 需各自应用主题(localStorage 键共享)
   useTheme();
-  const [entries, setEntries] = useState<HistoryEntryDto[]>([]);
+  // null = 尚未加载(渲染空白, 不闪"暂无历史"的假空态)
+  const [entries, setEntries] = useState<HistoryEntryDto[] | null>(null);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
   const [error, setError] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  // 高亮来源(键盘/鼠标)与高亮行元素: 仅键盘导航时执行滚动
+  const inputSourceRef = useRef<"keyboard" | "mouse">("keyboard");
+  const highlightElRef = useRef<HTMLDivElement | null>(null);
 
   const reload = useCallback(async () => {
     if (!hasTauri) return;
     try {
-      const settings = await api.getSettings();
-      setEntries(await api.listHistory(settings.historySort));
+      // 排序方式由后端读设置, 两次 IPC 无依赖可并行(唤起延迟减半)
+      const [settings, list] = await Promise.all([api.getSettings(), api.listHistory()]);
+      // 语言跟随设置: 本面板是常驻隐藏文档, 主窗切语言时不会重建,
+      // 每次刷新对齐一次(同值 setState 被 React 跳过, 无重渲染成本)
+      if (settings.language === "zh" || settings.language === "en") {
+        setLang(settings.language);
+      }
+      setEntries(list);
     } catch (e) {
       console.error(e);
     }
+  }, [setLang]);
+
+  // 毛玻璃材质生效时切半透明背景([data-vibrancy] 变量), 并清掉
+  // index.html 防白闪脚本设置的不透明底色 —— 材质不可用的平台保持
+  // 不透明变量, 透明窗不会漏出桌面(deskmate 约定)
+  useEffect(() => {
+    if (!hasTauri) return;
+    api
+      .windowEffectsActive()
+      .then((active) => {
+        if (!active) return;
+        document.documentElement.dataset.vibrancy = "1";
+        document.documentElement.style.background = "transparent";
+      })
+      .catch(console.error);
   }, []);
 
   useEffect(() => {
@@ -53,7 +78,13 @@ export function HistoryPanel() {
         .catch(console.error);
     };
     reload();
-    add(listen(EVENTS.HISTORY_CHANGED, reload));
+    // 本面板绝大多数时间是隐藏的常驻文档: 隐藏期间跳过刷新(每次复制
+    // 都全量拉一遍纯属浪费), 唤起时的 tauri://focus 刷新会兜底补齐
+    add(
+      listen(EVENTS.HISTORY_CHANGED, () => {
+        if (document.visibilityState === "visible") reload();
+      }),
+    );
     // 每次唤起(窗口获焦)重置状态: 刷新列表、清搜索、聚焦输入框
     add(
       getCurrentWindow().listen("tauri://focus", () => {
@@ -70,36 +101,63 @@ export function HistoryPanel() {
     };
   }, [reload]);
 
-  const lowered = query.toLowerCase();
-  const filtered = query
-    ? entries.filter(
-        (e) =>
-          e.preview.toLowerCase().includes(lowered) ||
-          (e.text?.toLowerCase().includes(lowered) ?? false),
-      )
-    : entries;
+  const loaded = useMemo(() => entries ?? [], [entries]);
+  // 小写检索文本随 entries 缓存: 大文本条目的 toLowerCase 只做一次,
+  // 而不是每次击键/每次高亮变化的重渲染都全量重算
+  const searchIndex = useMemo(
+    () => loaded.map((e) => `${e.preview}\n${e.text ?? ""}`.toLowerCase()),
+    [loaded],
+  );
+  const filtered = useMemo(() => {
+    if (!query) return loaded;
+    const lowered = query.toLowerCase();
+    return loaded.filter((_, i) => searchIndex[i].includes(lowered));
+  }, [loaded, searchIndex, query]);
   // 上下界都要夹取: 空列表按方向键可使 selected 变 -1
   const highlight = Math.max(0, Math.min(selected, filtered.length - 1));
+
+  // 高亮行滚入视野 —— 只响应键盘导航。鼠标悬停也滚动的话, 边缘行的
+  // scrollIntoView 会移动鼠标下方的内容, 与 hover 高亮互相触发成回路;
+  // 且键盘滚动把新行送到鼠标下时, 高亮会被鼠标抢走(mousemove 不受此害:
+  // 列表滚动而鼠标未动不产生 mousemove)
+  useEffect(() => {
+    if (inputSourceRef.current === "keyboard") {
+      highlightElRef.current?.scrollIntoView({ block: "nearest" });
+    }
+  }, [highlight]);
+
+  /** 收起面板: 先清搜索态(下次唤起首帧即干净, 不闪旧过滤视图),
+   *  经 Rust 侧统一收口(macOS 顺带把焦点归还前一应用, 粘贴闭环) */
+  const dismiss = () => {
+    setQuery("");
+    setSelected(0);
+    api.hidePanel().catch(() => void getCurrentWindow().hide());
+  };
 
   /** 选中条目: 写剪贴板并隐藏面板 */
   const choose = async (entry: HistoryEntryDto) => {
     try {
       await api.copyHistoryEntry(entry.id);
       setError("");
-      await getCurrentWindow().hide();
+      dismiss();
     } catch (e) {
       setError(formatError(e));
     }
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
+    // IME 组合期间的按键属于输入法(Enter 确认候选 / ↑↓ 选字 / Esc 取消
+    // 组合), 不得当作列表操作 —— 否则中文搜索打字打一半面板就消失
+    if (e.nativeEvent.isComposing) return;
     if (e.key === "Escape") {
-      void getCurrentWindow().hide();
+      dismiss();
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
+      inputSourceRef.current = "keyboard";
       setSelected((s) => Math.min(s + 1, filtered.length - 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
+      inputSourceRef.current = "keyboard";
       setSelected((s) => Math.max(s - 1, 0));
     } else if (e.key === "Enter" && filtered[highlight]) {
       void choose(filtered[highlight]);
@@ -126,22 +184,30 @@ export function HistoryPanel() {
         />
       </div>
 
-      {/* 条目列表 */}
+      {/* 条目列表(entries 为 null = 加载中, 渲染空白而非假空态文案) */}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {filtered.length === 0 ? (
+        {entries === null ? null : filtered.length === 0 ? (
           <div className="px-4 py-8 text-center text-xs text-mist">
-            {entries.length === 0 ? t.history.empty : t.history.noMatch}
+            {loaded.length === 0 ? t.history.empty : t.history.noMatch}
           </div>
         ) : (
           filtered.map((entry, index) => (
             <div
               key={entry.id}
               onClick={() => void choose(entry)}
-              onMouseEnter={() => setSelected(index)}
-              // 高亮行随键盘导航滚入视野(block: nearest 幂等, 回调 ref 重复调用无害)
+              // mousemove 而非 mouseenter: 键盘滚动把新行送到静止的鼠标下
+              // 会触发 mouseenter 抢走高亮, 真实移动才产生 mousemove
+              onMouseMove={() => {
+                if (selected !== index) {
+                  inputSourceRef.current = "mouse";
+                  setSelected(index);
+                }
+              }}
               ref={
                 index === highlight
-                  ? (el) => el?.scrollIntoView({ block: "nearest" })
+                  ? (el) => {
+                      highlightElRef.current = el;
+                    }
                   : undefined
               }
               className={`group flex cursor-pointer items-center gap-2 border-b border-line/40 px-3 py-2 last:border-b-0 ${
@@ -172,7 +238,16 @@ export function HistoryPanel() {
                   title={entry.pinned ? t.history.unpin : t.history.pin}
                   onClick={(e) => {
                     e.stopPropagation();
-                    void api.pinHistoryEntry(entry.id, !entry.pinned);
+                    // 乐观更新: 本地先翻转即时反馈, 排序调整等 HISTORY_CHANGED 校正
+                    setEntries(
+                      (list) =>
+                        list?.map((x) =>
+                          x.id === entry.id ? { ...x, pinned: !x.pinned } : x,
+                        ) ?? null,
+                    );
+                    api
+                      .pinHistoryEntry(entry.id, !entry.pinned)
+                      .catch((err) => setError(formatError(err)));
                   }}
                   className="cursor-pointer rounded p-1 text-mist hover:text-sonar"
                 >
@@ -182,7 +257,11 @@ export function HistoryPanel() {
                   title={t.history.delete}
                   onClick={(e) => {
                     e.stopPropagation();
-                    void api.deleteHistoryEntry(entry.id);
+                    // 乐观更新: 本地先移除保证即时反馈(deskmate 同款)
+                    setEntries((list) => list?.filter((x) => x.id !== entry.id) ?? null);
+                    api
+                      .deleteHistoryEntry(entry.id)
+                      .catch((err) => setError(formatError(err)));
                   }}
                   className="cursor-pointer rounded p-1 text-mist hover:text-alert"
                 >
@@ -222,7 +301,7 @@ function ClearHistoryButton() {
     <button
       onClick={() => {
         if (arming) {
-          void api.clearHistory();
+          api.clearHistory().catch(console.error);
           setArming(false);
         } else {
           setArming(true);
