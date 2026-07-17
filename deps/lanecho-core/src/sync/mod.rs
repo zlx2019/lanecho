@@ -603,9 +603,20 @@ fn spawn_clipboard_pump(
             inner
                 .last_local_copy_ms
                 .store(event.timestamp_ms, Ordering::Relaxed);
-            // v1 仅文本参与跨设备同步(决策 #9); 历史管道消费 LocalCopied 全类型
+            // v1 仅文本参与跨设备同步(决策 #9); 历史管道消费 LocalCopied 全类型。
+            // 上限/开关检查先于 clone: 不为注定丢弃的文本白拷整段
             let text = match &event.content {
-                ClipboardContent::Text(text) => Some(text.clone()),
+                ClipboardContent::Text(text) if inner.sync_enabled.load(Ordering::Relaxed) => {
+                    if text.len() > MAX_SYNC_TEXT_BYTES {
+                        tracing::info!(
+                            bytes = text.len(),
+                            "文本超过同步上限, 不广播(本机历史不受影响)"
+                        );
+                        None
+                    } else {
+                        Some(text.clone())
+                    }
+                }
                 _ => None,
             };
             inner
@@ -615,19 +626,9 @@ fn spawn_clipboard_pump(
                     timestamp_ms: event.timestamp_ms,
                 })
                 .await;
-            if !inner.sync_enabled.load(Ordering::Relaxed) {
-                continue;
-            }
             let Some(text) = text else {
                 continue;
             };
-            if text.len() > MAX_SYNC_TEXT_BYTES {
-                tracing::info!(
-                    bytes = text.len(),
-                    "文本超过同步上限, 不广播(本机历史不受影响)"
-                );
-                continue;
-            }
             // 帧上限精确校验: JSON 转义最坏使文本膨胀 6 倍(控制字符 \uXXXX),
             // 裸字节检查不足以保证成帧 <1MiB; 仅对可能越界的大文本预序列化精判,
             // 否则 write_frame 阶段才失败, 该条同步会对全部对端静默丢失

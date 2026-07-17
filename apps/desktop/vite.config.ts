@@ -9,6 +9,14 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(async () => ({
   plugins: [react(), tailwindcss()],
 
+  // 产物语法基线对齐 Tauri 官方模板: macOS 最低支持 10.15(Catalina 的
+  // WKWebView ≈ Safari 15)与 Linux WebKitGTK 都低于 vite 默认 baseline,
+  // 不设 target 会有"esbuild 发出新语法 → 老 webview 白屏"的兼容窗口
+  build: {
+    target:
+      process.env.TAURI_ENV_PLATFORM === "windows" ? "chrome105" : "safari13",
+  },
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent Vite from obscuring rust errors

@@ -4,7 +4,7 @@
 // 窗口 label 路由到本组件。选中条目 = 还原写入剪贴板并隐藏面板;
 // 该写入视同用户复制(方案 6.4), watcher 会正常广播与计数。
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api } from "../api";
@@ -86,15 +86,18 @@ export function HistoryPanel() {
     };
   }, [reload]);
 
-  const loaded = entries ?? [];
-  const lowered = query.toLowerCase();
-  const filtered = query
-    ? loaded.filter(
-        (e) =>
-          e.preview.toLowerCase().includes(lowered) ||
-          (e.text?.toLowerCase().includes(lowered) ?? false),
-      )
-    : loaded;
+  const loaded = useMemo(() => entries ?? [], [entries]);
+  // 小写检索文本随 entries 缓存: 大文本条目的 toLowerCase 只做一次,
+  // 而不是每次击键/每次高亮变化的重渲染都全量重算
+  const searchIndex = useMemo(
+    () => loaded.map((e) => `${e.preview}\n${e.text ?? ""}`.toLowerCase()),
+    [loaded],
+  );
+  const filtered = useMemo(() => {
+    if (!query) return loaded;
+    const lowered = query.toLowerCase();
+    return loaded.filter((_, i) => searchIndex[i].includes(lowered));
+  }, [loaded, searchIndex, query]);
   // 上下界都要夹取: 空列表按方向键可使 selected 变 -1
   const highlight = Math.max(0, Math.min(selected, filtered.length - 1));
 

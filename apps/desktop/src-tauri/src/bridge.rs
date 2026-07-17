@@ -175,7 +175,7 @@ fn spawn_history_worker(
         while let Some(job) = rx.recv().await {
             let outcome = history
                 .record(
-                    &job.content,
+                    job.content,
                     &job.hash,
                     job.at,
                     job.origin,

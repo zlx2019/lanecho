@@ -31,8 +31,10 @@ pub const EVENT_CHANNEL_CAP: usize = 64;
 
 // ---- 剪贴板监视(watcher, 决策 #4)----
 
-/// 变化戳轮询周期(macOS changeCount / Windows sequence number, 均为廉价调用)
-pub const WATCH_INTERVAL: Duration = Duration::from_millis(500);
+/// 变化戳轮询周期(macOS changeCount / Windows sequence number, 均为
+/// 单次系统调用级的廉价读取): 250ms 把"复制→对端可粘贴"的最坏检测
+/// 延迟砍到 1/4 秒, 翻倍的调用频率在微秒级成本下可忽略
+pub const WATCH_INTERVAL: Duration = Duration::from_millis(250);
 
 /// Linux 退化路径的轮询周期(无廉价变化戳, 读文本比对代价更高, 放宽)
 pub const WATCH_INTERVAL_FALLBACK: Duration = Duration::from_secs(1);
