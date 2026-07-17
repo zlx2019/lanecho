@@ -1,9 +1,9 @@
 //! 剪贴板访问与变化监视(方案决策 #4/#5)
 //!
 //! 分工:
-//! - [`stamp`]: 平台变化戳 —— "变没变"的廉价判断
+//! - `stamp`(私有): 平台变化戳 —— "变没变"的廉价判断
 //! - 本模块: 内容读取分类(files > image > text)、文本写入、监视任务
-//! - [`sensitive`]: 敏感标记检查(M1 为桩)
+//! - [`sensitive`][]: 敏感标记检查(密码管理器内容不广播、不入历史)
 //!
 //! 监视任务只负责产出 [`ClipboardEvent`], 回声抑制与同步决策在 sync 引擎;
 //! arboard 的读写是阻塞调用, 统一经 `spawn_blocking` 隔离出 async 上下文。
@@ -281,6 +281,10 @@ pub fn spawn_watcher(tx: mpsc::Sender<ClipboardEvent>) -> JoinHandle<()> {
 
 /// 启动基线的内容哈希(读取失败视为无基线)
 async fn baseline_hash(stamped: bool) -> Option<String> {
+    // 与主循环同约: 存量内容带敏感标记则不读取(基线无、也不占去重状态)
+    if sensitive::is_concealed() {
+        return None;
+    }
     let content = if stamped {
         read_content().await
     } else {
