@@ -315,13 +315,15 @@ fn emit<T: Serialize + Clone>(app: &tauri::AppHandle, event: &str, payload: T) {
     }
 }
 
-/// 主窗口不在前台时发系统通知(聚焦时应用内已可见, 不打扰)
+/// 应用不在前台时发系统通知(任一窗口聚焦时应用内已可见, 不打扰)
+///
+/// 遍历全部窗口: 只看 main 的话, 用户正在历史面板里操作时照样弹通知
 pub fn notify_if_unfocused(app: &tauri::AppHandle, title: &str, body: &str) {
     use tauri::Manager;
     let focused = app
-        .get_webview_window("main")
-        .and_then(|w| w.is_focused().ok())
-        .unwrap_or(false);
+        .webview_windows()
+        .values()
+        .any(|w| w.is_focused().unwrap_or(false));
     if focused {
         return;
     }

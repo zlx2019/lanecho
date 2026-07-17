@@ -32,6 +32,8 @@ width = 760
 height = 600
 minWidth = 640
 minHeight = 480
+# 创建时隐藏, 引擎就绪后由 setup 显示(登录自启 --hidden 曾有白窗一闪)
+visible = false
 
 [[app.windows]]
 # 历史浮窗(方案 14.5): 无边框、置顶、失焦即隐, 快捷键/托盘唤起
@@ -44,6 +46,9 @@ decorations = false
 alwaysOnTop = true
 visible = false
 skipTaskbar = true
+# 跟随当前 Space/虚拟桌面: 不设的话, macOS 激活应用会把系统整个切回
+# 面板所在 Space, 全屏/多桌面工作流被打断(Windows 上该项为 no-op)
+visibleOnAllWorkspaces = true
 
 [bundle]
 active = true

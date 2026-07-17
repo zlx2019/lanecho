@@ -257,10 +257,20 @@ pub async fn unpair_device(app: tauri::AppHandle, fingerprint: String) -> Result
 
 // ---- 历史剪贴板(M3, 方案 14 节)----
 
-/// 历史条目列表(按设置排序; pinned 恒顶)
+/// 历史条目列表(排序方式后端直接读设置; pinned 恒顶)
 #[tauri::command]
-pub fn list_history(state: State<'_, AppState>, sort: String) -> Vec<crate::history::HistoryEntry> {
+pub fn list_history(state: State<'_, AppState>) -> Vec<crate::history::HistoryEntry> {
+    let sort = lock(&state.settings).history_sort.clone();
     state.history.list(&sort)
+}
+
+/// 收起历史面板(Esc / 选中条目后前端调用)
+///
+/// 走 Rust 侧统一收口: macOS 上需要顺带把焦点归还前一应用(粘贴闭环),
+/// 见 [`crate::hide_panel_impl`]。
+#[tauri::command]
+pub fn hide_panel(app: tauri::AppHandle) {
+    crate::hide_panel_impl(&app);
 }
 
 /// 选中历史条目 → 还原写入系统剪贴板
@@ -322,20 +332,35 @@ pub async fn copy_entry_to_clipboard(app: &tauri::AppHandle, id: &str) -> Result
 }
 
 /// 删除单条历史
+///
+/// async + 阻塞线程: 同步命令跑在主事件循环线程, 直接做磁盘删除
+/// (blob 最大 10MB)会冻结全部窗口的 UI。
 #[tauri::command]
-pub fn delete_history_entry(app: tauri::AppHandle, state: State<'_, AppState>, id: String) {
-    if state.history.delete(&id) {
+pub async fn delete_history_entry(app: tauri::AppHandle, id: String) -> Result<(), ErrDto> {
+    let history = std::sync::Arc::clone(&app.state::<AppState>().history);
+    let deleted = tauri::async_runtime::spawn_blocking(move || history.delete(&id))
+        .await
+        .map_err(|e| ErrDto::with("engine", e))?;
+    if deleted {
         use tauri::Emitter;
         let _ = app.emit(events::HISTORY_CHANGED, ());
     }
+    Ok(())
 }
 
 /// 清空全部历史(含固定条目)
+///
+/// blobs 目录上限约 200×10MB ≈ 2GB, 同步命令在主线程删除会把
+/// 两个窗口整体冻结数秒 —— 必须走阻塞线程。
 #[tauri::command]
-pub fn clear_history(app: tauri::AppHandle, state: State<'_, AppState>) {
-    state.history.clear();
+pub async fn clear_history(app: tauri::AppHandle) -> Result<(), ErrDto> {
+    let history = std::sync::Arc::clone(&app.state::<AppState>().history);
+    tauri::async_runtime::spawn_blocking(move || history.clear())
+        .await
+        .map_err(|e| ErrDto::with("engine", e))?;
     use tauri::Emitter;
     let _ = app.emit(events::HISTORY_CHANGED, ());
+    Ok(())
 }
 
 /// 固定/取消固定历史条目
@@ -353,9 +378,14 @@ pub fn pin_history_entry(
 }
 
 /// 历史占用磁盘字节数(设置页展示)
+///
+/// 全目录 metadata 遍历属磁盘 IO, 不进主线程(每次复制后都会被前端调用)
 #[tauri::command]
-pub fn history_usage(state: State<'_, AppState>) -> u64 {
-    state.history.disk_usage()
+pub async fn history_usage(app: tauri::AppHandle) -> Result<u64, ErrDto> {
+    let history = std::sync::Arc::clone(&app.state::<AppState>().history);
+    tauri::async_runtime::spawn_blocking(move || history.disk_usage())
+        .await
+        .map_err(|e| ErrDto::with("engine", e))
 }
 
 /// 切换无痕模式(暂停历史记录; 会话级不持久化)

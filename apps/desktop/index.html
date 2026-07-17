@@ -5,6 +5,22 @@
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>lanecho</title>
+    <script>
+      // 防冷启动白闪: CSS/JS 就绪前先按主题偏好刷底色(值对应 index.css
+      // 的 --color-abyss 两态; 键与 theme.ts 的 THEME_KEY 一致)
+      (function () {
+        var pref = null;
+        try {
+          pref = localStorage.getItem("lanecho-theme");
+        } catch (_) {
+          /* storage 不可用时按系统 */
+        }
+        var dark =
+          pref === "dark" ||
+          (pref !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.style.background = dark ? "#101425" : "#eef1fa";
+      })();
+    </script>
   </head>
 
   <body>

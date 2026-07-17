@@ -21,7 +21,8 @@ export function HistoryPanel() {
   const { t, setLang } = useI18n();
   // 面板是独立 WebView 文档, 需各自应用主题(localStorage 键共享)
   useTheme();
-  const [entries, setEntries] = useState<HistoryEntryDto[]>([]);
+  // null = 尚未加载(渲染空白, 不闪"暂无历史"的假空态)
+  const [entries, setEntries] = useState<HistoryEntryDto[] | null>(null);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
   const [error, setError] = useState("");
@@ -33,13 +34,14 @@ export function HistoryPanel() {
   const reload = useCallback(async () => {
     if (!hasTauri) return;
     try {
-      const settings = await api.getSettings();
+      // 排序方式由后端读设置, 两次 IPC 无依赖可并行(唤起延迟减半)
+      const [settings, list] = await Promise.all([api.getSettings(), api.listHistory()]);
       // 语言跟随设置: 本面板是常驻隐藏文档, 主窗切语言时不会重建,
       // 每次刷新对齐一次(同值 setState 被 React 跳过, 无重渲染成本)
       if (settings.language === "zh" || settings.language === "en") {
         setLang(settings.language);
       }
-      setEntries(await api.listHistory(settings.historySort));
+      setEntries(list);
     } catch (e) {
       console.error(e);
     }
@@ -61,7 +63,13 @@ export function HistoryPanel() {
         .catch(console.error);
     };
     reload();
-    add(listen(EVENTS.HISTORY_CHANGED, reload));
+    // 本面板绝大多数时间是隐藏的常驻文档: 隐藏期间跳过刷新(每次复制
+    // 都全量拉一遍纯属浪费), 唤起时的 tauri://focus 刷新会兜底补齐
+    add(
+      listen(EVENTS.HISTORY_CHANGED, () => {
+        if (document.visibilityState === "visible") reload();
+      }),
+    );
     // 每次唤起(窗口获焦)重置状态: 刷新列表、清搜索、聚焦输入框
     add(
       getCurrentWindow().listen("tauri://focus", () => {
@@ -78,14 +86,15 @@ export function HistoryPanel() {
     };
   }, [reload]);
 
+  const loaded = entries ?? [];
   const lowered = query.toLowerCase();
   const filtered = query
-    ? entries.filter(
+    ? loaded.filter(
         (e) =>
           e.preview.toLowerCase().includes(lowered) ||
           (e.text?.toLowerCase().includes(lowered) ?? false),
       )
-    : entries;
+    : loaded;
   // 上下界都要夹取: 空列表按方向键可使 selected 变 -1
   const highlight = Math.max(0, Math.min(selected, filtered.length - 1));
 
@@ -99,12 +108,20 @@ export function HistoryPanel() {
     }
   }, [highlight]);
 
+  /** 收起面板: 先清搜索态(下次唤起首帧即干净, 不闪旧过滤视图),
+   *  经 Rust 侧统一收口(macOS 顺带把焦点归还前一应用, 粘贴闭环) */
+  const dismiss = () => {
+    setQuery("");
+    setSelected(0);
+    api.hidePanel().catch(() => void getCurrentWindow().hide());
+  };
+
   /** 选中条目: 写剪贴板并隐藏面板 */
   const choose = async (entry: HistoryEntryDto) => {
     try {
       await api.copyHistoryEntry(entry.id);
       setError("");
-      await getCurrentWindow().hide();
+      dismiss();
     } catch (e) {
       setError(formatError(e));
     }
@@ -115,7 +132,7 @@ export function HistoryPanel() {
     // 组合), 不得当作列表操作 —— 否则中文搜索打字打一半面板就消失
     if (e.nativeEvent.isComposing) return;
     if (e.key === "Escape") {
-      void getCurrentWindow().hide();
+      dismiss();
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
       inputSourceRef.current = "keyboard";
@@ -149,11 +166,11 @@ export function HistoryPanel() {
         />
       </div>
 
-      {/* 条目列表 */}
+      {/* 条目列表(entries 为 null = 加载中, 渲染空白而非假空态文案) */}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {filtered.length === 0 ? (
+        {entries === null ? null : filtered.length === 0 ? (
           <div className="px-4 py-8 text-center text-xs text-mist">
-            {entries.length === 0 ? t.history.empty : t.history.noMatch}
+            {loaded.length === 0 ? t.history.empty : t.history.noMatch}
           </div>
         ) : (
           filtered.map((entry, index) => (
@@ -203,7 +220,16 @@ export function HistoryPanel() {
                   title={entry.pinned ? t.history.unpin : t.history.pin}
                   onClick={(e) => {
                     e.stopPropagation();
-                    void api.pinHistoryEntry(entry.id, !entry.pinned);
+                    // 乐观更新: 本地先翻转即时反馈, 排序调整等 HISTORY_CHANGED 校正
+                    setEntries(
+                      (list) =>
+                        list?.map((x) =>
+                          x.id === entry.id ? { ...x, pinned: !x.pinned } : x,
+                        ) ?? null,
+                    );
+                    api
+                      .pinHistoryEntry(entry.id, !entry.pinned)
+                      .catch((err) => setError(formatError(err)));
                   }}
                   className="cursor-pointer rounded p-1 text-mist hover:text-sonar"
                 >
@@ -213,7 +239,11 @@ export function HistoryPanel() {
                   title={t.history.delete}
                   onClick={(e) => {
                     e.stopPropagation();
-                    void api.deleteHistoryEntry(entry.id);
+                    // 乐观更新: 本地先移除保证即时反馈(deskmate 同款)
+                    setEntries((list) => list?.filter((x) => x.id !== entry.id) ?? null);
+                    api
+                      .deleteHistoryEntry(entry.id)
+                      .catch((err) => setError(formatError(err)));
                   }}
                   className="cursor-pointer rounded p-1 text-mist hover:text-alert"
                 >
@@ -253,7 +283,7 @@ function ClearHistoryButton() {
     <button
       onClick={() => {
         if (arming) {
-          void api.clearHistory();
+          api.clearHistory().catch(console.error);
           setArming(false);
         } else {
           setArming(true);

@@ -23,10 +23,12 @@ export const api = {
   listPendingPairs: () => invoke<PeerDto[]>("list_pending_pairs"),
   /** 解除配对 */
   unpairDevice: (fingerprint: string) => invoke<void>("unpair_device", { fingerprint }),
-  /** 历史: 列表(按设置排序, pinned 恒顶) */
-  listHistory: (sort: string) => invoke<HistoryEntryDto[]>("list_history", { sort }),
+  /** 历史: 列表(排序方式后端读设置, pinned 恒顶) */
+  listHistory: () => invoke<HistoryEntryDto[]>("list_history"),
   /** 历史: 选中条目还原写入剪贴板(视同用户复制, 会正常广播) */
   copyHistoryEntry: (id: string) => invoke<void>("copy_history_entry", { id }),
+  /** 收起历史面板(Rust 侧统一收口: macOS 顺带归还焦点给前一应用) */
+  hidePanel: () => invoke<void>("hide_panel"),
   /** 历史: 删除单条 / 清空 / 固定 */
   deleteHistoryEntry: (id: string) => invoke<void>("delete_history_entry", { id }),
   clearHistory: () => invoke<void>("clear_history"),

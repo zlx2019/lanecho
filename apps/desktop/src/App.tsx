@@ -72,16 +72,26 @@ export default function App() {
         if (alive) setIncognito(e.payload);
       }),
     );
+    // 占用量刷新: 设置窗大多数时间隐藏在托盘后, 隐藏期间跳过磁盘遍历,
+    // 重新可见时补刷一次(节流复制路径上的背景开销)
+    const refreshUsage = () => {
+      api
+        .historyUsage()
+        .then((v) => alive && setUsage(v))
+        .catch(console.error);
+    };
     add(
       listen(EVENTS.HISTORY_CHANGED, () => {
-        api
-          .historyUsage()
-          .then((v) => alive && setUsage(v))
-          .catch(console.error);
+        if (document.visibilityState === "visible") refreshUsage();
       }),
     );
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refreshUsage();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       alive = false;
+      document.removeEventListener("visibilitychange", onVisible);
       unsubs.forEach((u) => u());
     };
   }, []);

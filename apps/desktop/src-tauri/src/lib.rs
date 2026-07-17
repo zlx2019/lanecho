@@ -31,6 +31,13 @@ const TRAY_ID: &str = "main-tray";
 /// 副产物"与"用户真点 Dock"。
 static LAST_PANEL_SHOW_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+/// 面板最近一次因失焦被隐藏的时刻(Unix 毫秒)
+///
+/// 托盘点击的时序是"按下先夺焦 → 面板 blur 隐藏 → Click(Up) 又 show":
+/// 不加区分, 用户想用托盘收起面板只会看到它闪一下又出现。show_panel
+/// 入口发现刚刚(300ms 内)因失焦隐藏过, 视为一次 toggle 收起直接返回。
+static LAST_PANEL_BLUR_HIDE_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// 应用入口
 pub fn run() {
     init_logging();
@@ -78,11 +85,12 @@ pub fn run() {
                 handle.exit(0);
             });
 
-            // 自启实例: 隐入托盘(与 autostart 注册的 --hidden 参数字面量一致)
-            if std::env::args().any(|a| a == "--hidden")
+            // 主窗配置为 visible=false(防登录自启白窗一闪), 正常启动在
+            // 引擎就绪后再显示; 自启实例(--hidden, 与 autostart 参数一致)保持隐藏
+            if !std::env::args().any(|a| a == "--hidden")
                 && let Some(window) = app.get_webview_window("main")
             {
-                let _ = window.hide();
+                let _ = window.show();
             }
             Ok(())
         })
@@ -93,8 +101,15 @@ pub fn run() {
                     api.prevent_close();
                     let _ = window.hide();
                 }
-                // 历史浮窗: 失焦即隐(Maccy 形态, 方案 14.5)
-                WindowEvent::Focused(false) if window.label() == "panel" => {
+                // 历史浮窗: 失焦即隐(Maccy 形态, 方案 14.5)。
+                // 仅可见时才记录并隐藏: hide 自身也会触发一次 blur, 不重复记时
+                WindowEvent::Focused(false)
+                    if window.label() == "panel" && window.is_visible().unwrap_or(false) =>
+                {
+                    LAST_PANEL_BLUR_HIDE_MS.store(
+                        lanecho_core::clipboard::now_ms(),
+                        std::sync::atomic::Ordering::Relaxed,
+                    );
                     let _ = window.hide();
                 }
                 _ => {}
@@ -111,6 +126,7 @@ pub fn run() {
             commands::list_pending_pairs,
             commands::unpair_device,
             commands::list_history,
+            commands::hide_panel,
             commands::copy_history_entry,
             commands::delete_history_entry,
             commands::clear_history,
@@ -195,15 +211,28 @@ fn show_panel(app: &tauri::AppHandle) {
     let Some(panel) = app.get_webview_window("panel") else {
         return;
     };
+    // toggle 语义(Maccy 惯例): 面板已在前台时再次触发 = 收起
+    if panel.is_visible().unwrap_or(false) && panel.is_focused().unwrap_or(false) {
+        hide_panel_impl(app);
+        return;
+    }
+    // 托盘点击的 blur→click 竞态: 刚因失焦隐藏过, 本次触发视为 toggle 收起
+    let since_blur = lanecho_core::clipboard::now_ms()
+        .saturating_sub(LAST_PANEL_BLUR_HIDE_MS.load(std::sync::atomic::Ordering::Relaxed));
+    if since_blur < 300 {
+        return;
+    }
     LAST_PANEL_SHOW_MS.store(
         lanecho_core::clipboard::now_ms(),
         std::sync::atomic::Ordering::Relaxed,
     );
     if let Ok(pos) = app.cursor_position() {
         let (mut x, mut y) = (pos.x, pos.y);
-        let panel_size = panel
-            .outer_size()
-            .unwrap_or(tauri::PhysicalSize::new(380, 480));
+        // 兜底是逻辑尺寸(Tauri.toml 的 380×480), 物理坐标系里要乘缩放
+        let panel_size = panel.outer_size().unwrap_or_else(|_| {
+            let scale = panel.scale_factor().unwrap_or(1.0);
+            tauri::PhysicalSize::new((380.0 * scale) as u32, (480.0 * scale) as u32)
+        });
         if let Ok(Some(monitor)) = app.monitor_from_point(pos.x, pos.y) {
             let mon_pos = monitor.position();
             let mon_size = monitor.size();
@@ -218,6 +247,27 @@ fn show_panel(app: &tauri::AppHandle) {
     }
     let _ = panel.show();
     let _ = panel.set_focus();
+}
+
+/// 收起历史面板(Esc / 选中条目 / toggle 共用)
+///
+/// macOS 上若主窗不可见, 顺带把应用整体让位: NSApp.hide 会把焦点归还
+/// 给前一个应用 —— 用户"唤起→选中→⌘V"一气呵成, 不必手动点回目标应用。
+/// 设置窗开着时不让位(用户可能正在两窗间往返)。
+pub fn hide_panel_impl(app: &tauri::AppHandle) {
+    if let Some(panel) = app.get_webview_window("panel") {
+        let _ = panel.hide();
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let main_visible = app
+            .get_webview_window("main")
+            .and_then(|w| w.is_visible().ok())
+            .unwrap_or(false);
+        if !main_visible {
+            let _ = app.hide();
+        }
+    }
 }
 
 /// 按设置注册全局快捷键(先清空再注册; 供启动与设置变更共用)
