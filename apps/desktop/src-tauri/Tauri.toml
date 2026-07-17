@@ -33,6 +33,18 @@ height = 600
 minWidth = 640
 minHeight = 480
 
+[[app.windows]]
+# 历史浮窗(方案 14.5): 无边框、置顶、失焦即隐, 快捷键/托盘唤起
+label = "panel"
+title = "lanecho history"
+width = 380
+height = 480
+resizable = false
+decorations = false
+alwaysOnTop = true
+visible = false
+skipTaskbar = true
+
 [bundle]
 active = true
 # 按平台明确产物: macOS app+dmg / Windows nsis / Linux appimage+deb

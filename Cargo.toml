@@ -44,6 +44,9 @@ socket2 = "0.6"
 clap = { version = "4", features = ["derive"] }
 # 剪贴板读写(2026-07-17 批准): 纯 Rust 跨平台, tauri-plugin-clipboard-manager 的底层库
 arboard = "3"
+# 历史图像落盘(2026-07-17 批准): 仅 PNG 编解码的轻量单品(image-rs 官方),
+# arboard 给 RGBA 原始位图, 存 PNG 体积小两个量级
+png = "0.17"
 # macOS 平台绑定: 变化戳 NSPasteboard.changeCount(决策 #4)+ 敏感标记检查(6.3);
 # 与 arboard 的既有传递依赖同源, 不引入新供应链
 objc2 = "0.6"

@@ -2,7 +2,9 @@
 // 托盘常驻应用的"控制面板", 无雷达无拖拽 —— 刻意极简(方案第 8 节)
 
 import { useEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
+import { EVENTS } from "./events";
 import { PairRequestModal } from "./components/PairRequestModal";
 import { Button, ToggleRow } from "./components/ModalShell";
 import { useLanecho } from "./hooks/useLanecho";
@@ -38,8 +40,12 @@ export default function App() {
   const [pairError, setPairError] = useState("");
   const [pairingWith, setPairingWith] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [incognito, setIncognito] = useState(false);
+  const [usage, setUsage] = useState(0);
+  const [hotkeyInput, setHotkeyInput] = useState("");
+  const [maxEntriesInput, setMaxEntriesInput] = useState(200);
 
-  // 初始加载设置
+  // 初始加载设置 + 历史占用 + 无痕状态(托盘切换经事件回显)
   useEffect(() => {
     if (!hasTauri) return;
     api
@@ -47,8 +53,36 @@ export default function App() {
       .then((s) => {
         setSettings(s);
         setPortInput(s.tcpPort);
+        setHotkeyInput(s.panelHotkey);
+        setMaxEntriesInput(s.historyMaxEntries);
       })
       .catch(console.error);
+    api.getIncognito().then(setIncognito).catch(console.error);
+    api.historyUsage().then(setUsage).catch(console.error);
+    let alive = true;
+    const unsubs: (() => void)[] = [];
+    const add = (subscription: Promise<() => void>) => {
+      subscription
+        .then((unsub) => (alive ? unsubs.push(unsub) : unsub()))
+        .catch(console.error);
+    };
+    add(
+      listen<boolean>(EVENTS.INCOGNITO_STATE, (e) => {
+        if (alive) setIncognito(e.payload);
+      }),
+    );
+    add(
+      listen(EVENTS.HISTORY_CHANGED, () => {
+        api
+          .historyUsage()
+          .then((v) => alive && setUsage(v))
+          .catch(console.error);
+      }),
+    );
+    return () => {
+      alive = false;
+      unsubs.forEach((u) => u());
+    };
   }, []);
   // 本机名仅在首次加载(或保存后主动请求)时回填, 不覆盖正在输入的值
   const nicknameSynced = useRef(false);
@@ -80,7 +114,13 @@ export default function App() {
         nicknameSynced.current = false;
         lanecho.refreshSelf();
       }
-      const next: Settings = { ...settings, tcpPort: portInput, language: langChoice };
+      const next: Settings = {
+        ...settings,
+        tcpPort: portInput,
+        language: langChoice,
+        panelHotkey: hotkeyInput.trim(),
+        historyMaxEntries: Math.max(1, maxEntriesInput),
+      };
       await api.saveSettings(next);
       setSettings(next);
       if (langChoice !== lang) setLang(langChoice);
@@ -281,6 +321,88 @@ export default function App() {
             onChange={(v) => patchSettings({ notifyOnSync: v })}
           />
 
+          {/* 历史分区(方案 14.7) */}
+          <div className="gauge-label mt-5 mb-1 border-t border-line pt-4">
+            {t.historySettings.section}
+            <span className="ml-2 normal-case">
+              {t.historySettings.usage(formatBytes(usage))}
+            </span>
+          </div>
+
+          <div className="gauge-label mt-3 mb-1">{t.historySettings.maxEntries}</div>
+          <input
+            type="number"
+            min={1}
+            max={10000}
+            value={maxEntriesInput}
+            onChange={(e) => setMaxEntriesInput(Number(e.target.value) || 1)}
+            className="font-gauge w-32 rounded-md border border-line-2 bg-abyss/60 px-3 py-1.5 text-sm text-fog outline-none focus:border-sonar/60"
+          />
+
+          <div className="gauge-label mt-4 mb-1">{t.historySettings.recordTypes}</div>
+          <div className="flex gap-1.5">
+            {(
+              [
+                ["historyRecordText", t.historySettings.recordText],
+                ["historyRecordImages", t.historySettings.recordImages],
+                ["historyRecordFiles", t.historySettings.recordFiles],
+              ] as [keyof Settings, string][]
+            ).map(([key, label]) => (
+              <SegButton
+                key={key}
+                active={Boolean(settings?.[key])}
+                onClick={() => patchSettings({ [key]: !settings?.[key] })}
+              >
+                {label}
+              </SegButton>
+            ))}
+          </div>
+
+          <div className="gauge-label mt-4 mb-1">{t.historySettings.sort}</div>
+          <div className="flex gap-1.5">
+            {(
+              [
+                ["recent", t.historySettings.sortRecent],
+                ["frequent", t.historySettings.sortFrequent],
+              ] as [string, string][]
+            ).map(([value, label]) => (
+              <SegButton
+                key={value}
+                active={(settings?.historySort ?? "recent") === value}
+                onClick={() => patchSettings({ historySort: value })}
+              >
+                {label}
+              </SegButton>
+            ))}
+          </div>
+
+          <div className="gauge-label mt-4 mb-1">{t.historySettings.panelHotkey}</div>
+          <div className="flex items-center gap-2">
+            <input
+              value={hotkeyInput}
+              onChange={(e) => setHotkeyInput(e.target.value)}
+              placeholder="CmdOrCtrl+Shift+V"
+              className="font-gauge w-56 rounded-md border border-line-2 bg-abyss/60 px-3 py-1.5 text-sm text-fog outline-none focus:border-sonar/60"
+            />
+            <span className="text-[11px] text-mist">{t.historySettings.panelHotkeyHint}</span>
+          </div>
+
+          <ToggleRow
+            label={t.historySettings.slotHotkeys}
+            hint={t.historySettings.slotHotkeysHint}
+            checked={settings?.slotHotkeys ?? true}
+            onChange={(v) => patchSettings({ slotHotkeys: v })}
+          />
+          <ToggleRow
+            label={t.historySettings.incognito}
+            hint={t.historySettings.incognitoHint}
+            checked={incognito}
+            onChange={(v) => {
+              setIncognito(v);
+              api.setIncognito(v).catch(console.error);
+            }}
+          />
+
           <div className="mt-4 flex items-center justify-end gap-3 border-t border-line pt-3">
             {tip && <span className="max-w-64 truncate text-xs text-mist">{tip}</span>}
             <Button variant="primary" onClick={save}>
@@ -319,7 +441,14 @@ export default function App() {
   );
 }
 
-/** 分段选择按钮(语言/主题) */
+/** 字节数格式化(KB/MB 两级足够) */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** 分段选择按钮(语言/主题/历史类型) */
 function SegButton({
   active,
   onClick,

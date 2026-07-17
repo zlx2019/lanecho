@@ -118,11 +118,20 @@ pub fn save_settings(
     let old = lock(&state.settings).clone();
     let language_changed = old.language != settings.language;
     let sync_changed = old.sync_enabled != settings.sync_enabled;
+    let hotkeys_changed =
+        old.panel_hotkey != settings.panel_hotkey || old.slot_hotkeys != settings.slot_hotkeys;
 
-    // 可失败步骤最先: 失败即整体失败, 无任何已应用的副作用
-    settings
-        .save(&state.data_dir)
-        .map_err(|e| ErrDto::with("settings_save_failed", e))?;
+    // 可失败步骤最先: 失败即整体失败(并恢复旧态), 无任何残留副作用
+    if hotkeys_changed && let Err(e) = crate::apply_hotkeys(&app, &settings) {
+        let _ = crate::apply_hotkeys(&app, &old);
+        return Err(ErrDto::with("hotkey_invalid", e));
+    }
+    if let Err(e) = settings.save(&state.data_dir) {
+        if hotkeys_changed {
+            let _ = crate::apply_hotkeys(&app, &old);
+        }
+        return Err(ErrDto::with("settings_save_failed", e));
+    }
     *lock(&state.settings) = settings.clone();
 
     // 以下均为幂等副作用, 按新值同步
@@ -229,4 +238,124 @@ pub async fn unpair_device(app: tauri::AppHandle, fingerprint: String) -> Result
     let state = app.state::<AppState>();
     state.engine.unpair(&fingerprint).await;
     Ok(())
+}
+
+// ---- 历史剪贴板(M3, 方案 14 节)----
+
+/// 历史条目列表(按设置排序; pinned 恒顶)
+#[tauri::command]
+pub fn list_history(state: State<'_, AppState>, sort: String) -> Vec<crate::history::HistoryEntry> {
+    state.history.list(&sort)
+}
+
+/// 选中历史条目 → 还原写入系统剪贴板
+///
+/// 视同用户复制(方案 6.4): 不登记回声, watcher 检测到变化后正常
+/// 走本机复制管道(文本广播 + 历史计数)。
+#[tauri::command]
+pub async fn copy_history_entry(app: tauri::AppHandle, id: String) -> Result<(), ErrDto> {
+    copy_entry_to_clipboard(&app, &id).await
+}
+
+/// 还原历史条目到剪贴板(命令与槽位快捷键共用)
+pub async fn copy_entry_to_clipboard(app: &tauri::AppHandle, id: &str) -> Result<(), ErrDto> {
+    use lanecho_core::clipboard;
+
+    let (entry, history) = {
+        let state = app.state::<AppState>();
+        (
+            state
+                .history
+                .entry(id)
+                .ok_or_else(|| ErrDto::new("history_missing"))?,
+            std::sync::Arc::clone(&state.history),
+        )
+    };
+    match entry.kind.as_str() {
+        crate::history::kind::TEXT => {
+            let text = entry.text.ok_or_else(|| ErrDto::new("history_missing"))?;
+            clipboard::write_text(text)
+                .await
+                .map_err(|e| ErrDto::with("clipboard_write_failed", e))
+        }
+        crate::history::kind::IMAGE => {
+            let hash = entry
+                .blob_hash
+                .ok_or_else(|| ErrDto::new("history_missing"))?;
+            // 磁盘读取 + PNG 解码是阻塞操作, 移出 async 上下文
+            let (width, height, rgba) =
+                tokio::task::spawn_blocking(move || history.load_image_rgba(&hash))
+                    .await
+                    .map_err(|e| ErrDto::with("history_missing", e))?
+                    .map_err(|e| ErrDto::with("history_missing", e))?;
+            clipboard::write_image(width, height, rgba)
+                .await
+                .map_err(|e| ErrDto::with("clipboard_write_failed", e))
+        }
+        crate::history::kind::FILES => {
+            let files = entry.files.ok_or_else(|| ErrDto::new("history_missing"))?;
+            // 懒校验(方案 14.1): 源文件被删/移动的条目选中时才报失效
+            if !files.iter().all(|p| p.exists()) {
+                return Err(ErrDto::new("files_missing"));
+            }
+            clipboard::write_files(files)
+                .await
+                .map_err(|e| ErrDto::with("clipboard_write_failed", e))
+        }
+        _ => Err(ErrDto::new("history_missing")),
+    }
+}
+
+/// 删除单条历史
+#[tauri::command]
+pub fn delete_history_entry(app: tauri::AppHandle, state: State<'_, AppState>, id: String) {
+    if state.history.delete(&id) {
+        use tauri::Emitter;
+        let _ = app.emit(events::HISTORY_CHANGED, ());
+    }
+}
+
+/// 清空全部历史(含固定条目)
+#[tauri::command]
+pub fn clear_history(app: tauri::AppHandle, state: State<'_, AppState>) {
+    state.history.clear();
+    use tauri::Emitter;
+    let _ = app.emit(events::HISTORY_CHANGED, ());
+}
+
+/// 固定/取消固定历史条目
+#[tauri::command]
+pub fn pin_history_entry(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    pinned: bool,
+) {
+    if state.history.set_pinned(&id, pinned) {
+        use tauri::Emitter;
+        let _ = app.emit(events::HISTORY_CHANGED, ());
+    }
+}
+
+/// 历史占用磁盘字节数(设置页展示)
+#[tauri::command]
+pub fn history_usage(state: State<'_, AppState>) -> u64 {
+    state.history.disk_usage()
+}
+
+/// 切换无痕模式(暂停历史记录; 会话级不持久化)
+#[tauri::command]
+pub fn set_incognito(app: tauri::AppHandle, state: State<'_, AppState>, on: bool) {
+    state
+        .incognito
+        .store(on, std::sync::atomic::Ordering::Relaxed);
+    crate::refresh_tray_menu(&app);
+    use tauri::Emitter;
+    let _ = app.emit(events::INCOGNITO_STATE, on);
+}
+
+/// 当前无痕状态
+#[tauri::command]
+pub fn get_incognito(state: State<'_, AppState>) -> bool {
+    state.incognito.load(std::sync::atomic::Ordering::Relaxed)
 }

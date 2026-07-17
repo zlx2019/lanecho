@@ -6,6 +6,7 @@
 //! - 事件转发: 引擎事件 → 前端 Tauri 事件(事件名见 [`events`])
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
@@ -14,10 +15,11 @@ use tauri_plugin_notification::NotificationExt;
 use tokio::sync::mpsc;
 
 use lanecho_core::DEFAULT_DISCOVERY_PORT;
-use lanecho_core::clipboard::{self, now_ms};
+use lanecho_core::clipboard::{self, ClipboardContent, now_ms};
 use lanecho_core::protocol::PeerInfo;
 use lanecho_core::sync::{EngineConfig, EngineEvent, SyncEngine};
 
+use crate::history::{HistoryConfig, HistoryStore};
 use crate::locale;
 use crate::settings::Settings;
 use crate::state::{AppState, lock};
@@ -38,6 +40,10 @@ pub mod events {
     pub const CLIPBOARD_SYNCED: &str = "clipboard-synced";
     /// 同步开关变化(托盘切换回显设置窗), payload: bool
     pub const SYNC_STATE: &str = "sync-state-changed";
+    /// 历史内容变化(新增/计数/删除/清空), 面板与设置页刷新用, 无载荷
+    pub const HISTORY_CHANGED: &str = "history-changed";
+    /// 无痕模式变化(托盘切换回显), payload: bool
+    pub const INCOGNITO_STATE: &str = "incognito-changed";
 }
 
 /// 节点信息 DTO(peer-up / pair-requested / paired 事件与设备列表共用)
@@ -102,29 +108,98 @@ pub async fn start_engine(app: tauri::AppHandle, data_dir: PathBuf) -> anyhow::R
     // 接管系统剪贴板监视: 本机复制 → 引擎(变化戳轮询, 决策 #4)
     clipboard::spawn_watcher(clip_tx);
     let engine = Arc::new(engine);
-    spawn_event_pump(
+    let history = Arc::new(HistoryStore::load(&data_dir));
+    let incognito = Arc::new(AtomicBool::new(false));
+    let history_tx = spawn_history_worker(
+        app.clone(),
+        Arc::clone(&history),
+        Arc::clone(&settings_shared),
+    );
+    spawn_event_pump(PumpDeps {
         app,
         events_rx,
-        Arc::clone(&settings_shared),
-        Arc::clone(&engine),
-    );
+        settings: Arc::clone(&settings_shared),
+        engine: Arc::clone(&engine),
+        history_tx,
+        incognito: Arc::clone(&incognito),
+    });
 
     Ok(AppState {
         engine,
         settings: settings_shared,
+        history,
+        incognito,
         data_dir,
     })
 }
 
-/// 单路事件泵: EngineEvent → 剪贴板落地 / 系统通知 / Tauri 事件
-///
-/// settings 经 Arc 捕获(而非 app.state): 泵先于 manage 启动, 避开注入时序。
-fn spawn_event_pump(
+/// 事件泵的依赖集(全部经 Arc 捕获, 不经 app.state 以避开注入时序)
+struct PumpDeps {
     app: tauri::AppHandle,
-    mut events_rx: mpsc::Receiver<EngineEvent>,
+    events_rx: mpsc::Receiver<EngineEvent>,
     settings: Arc<Mutex<Settings>>,
     engine: Arc<SyncEngine>,
-) {
+    history_tx: mpsc::Sender<HistoryJob>,
+    incognito: Arc<AtomicBool>,
+}
+
+/// 历史记录任务(泵 → worker)
+struct HistoryJob {
+    content: ClipboardContent,
+    hash: String,
+    at: u64,
+    origin: Option<String>,
+}
+
+/// 从设置摘取历史记录配置快照
+fn history_config(settings: &Mutex<Settings>) -> HistoryConfig {
+    let s = lock(settings);
+    HistoryConfig {
+        max_entries: s.history_max_entries,
+        record_text: s.history_record_text,
+        record_images: s.history_record_images,
+        record_files: s.history_record_files,
+    }
+}
+
+/// 历史记录专用串行 worker: 把 record(含大图 PNG 编码, 可达秒级)
+/// 移出唯一事件泵, 防止队头阻塞 ApplyRemote/配对弹窗等实时事件;
+/// 单任务顺序消费保证去重查插不并发。
+fn spawn_history_worker(
+    app: tauri::AppHandle,
+    history: Arc<HistoryStore>,
+    settings: Arc<Mutex<Settings>>,
+) -> mpsc::Sender<HistoryJob> {
+    let (tx, mut rx) = mpsc::channel::<HistoryJob>(32);
+    tauri::async_runtime::spawn(async move {
+        while let Some(job) = rx.recv().await {
+            let outcome = history
+                .record(
+                    &job.content,
+                    &job.hash,
+                    job.at,
+                    job.origin,
+                    history_config(&settings),
+                )
+                .await;
+            if outcome != crate::history::RecordOutcome::Skipped {
+                emit(&app, events::HISTORY_CHANGED, ());
+            }
+        }
+    });
+    tx
+}
+
+/// 单路事件泵: EngineEvent → 剪贴板落地 / 历史记录 / 系统通知 / Tauri 事件
+fn spawn_event_pump(deps: PumpDeps) {
+    let PumpDeps {
+        app,
+        mut events_rx,
+        settings,
+        engine,
+        history_tx,
+        incognito,
+    } = deps;
     tauri::async_runtime::spawn(async move {
         while let Some(event) = events_rx.recv().await {
             match event {
@@ -150,8 +225,24 @@ fn spawn_event_pump(
                 EngineEvent::Unpaired { fingerprint } => {
                     emit(&app, events::UNPAIRED, fingerprint);
                 }
-                // M3 历史剪贴板挂此事件; M2 无消费方
-                EngineEvent::LocalCopied { .. } => {}
+                // 本机复制 → 历史 worker(方案 14 节; 无痕模式下暂停记录)
+                EngineEvent::LocalCopied {
+                    content,
+                    hash,
+                    timestamp_ms,
+                } => {
+                    if incognito.load(Ordering::Relaxed) {
+                        continue;
+                    }
+                    let _ = history_tx
+                        .send(HistoryJob {
+                            content,
+                            hash,
+                            at: timestamp_ms,
+                            origin: None,
+                        })
+                        .await;
+                }
                 EngineEvent::ApplyRemote {
                     text, from, hash, ..
                 } => {
@@ -159,10 +250,22 @@ fn spawn_event_pump(
                     // 装配层落地: 写系统剪贴板(回声哈希已在引擎侧登记);
                     // 失败必须撤销回声登记, 否则孤儿哈希会误吞下一次
                     // 同内容的真实本机复制(ApplyRemote 契约)
-                    if let Err(e) = clipboard::write_text(text).await {
+                    if let Err(e) = clipboard::write_text(text.clone()).await {
                         tracing::warn!("远端同步写入系统剪贴板失败: {e}");
                         engine.cancel_echo(&hash);
                         continue;
+                    }
+                    // 远端写入也计入历史(origin = 来源设备名, 方案 14.1);
+                    // 回声事件会被引擎吞掉不经 LocalCopied, 此处是唯一入口
+                    if !incognito.load(Ordering::Relaxed) {
+                        let _ = history_tx
+                            .send(HistoryJob {
+                                content: ClipboardContent::Text(text),
+                                hash,
+                                at: now_ms(),
+                                origin: Some(from.name.clone()),
+                            })
+                            .await;
                     }
                     let (notify, lang) = {
                         let s = lock(&settings);

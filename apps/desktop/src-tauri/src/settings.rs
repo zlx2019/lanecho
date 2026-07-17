@@ -28,6 +28,20 @@ pub struct Settings {
     pub notify_on_sync: bool,
     /// 界面语言: "zh" / "en"; 空表示未初始化(首启由前端按系统语言检测后写入)
     pub language: String,
+    /// 历史保留条目上限(超限按"未固定 + 最旧"淘汰)
+    pub history_max_entries: usize,
+    /// 历史记录类型开关: 文本
+    pub history_record_text: bool,
+    /// 历史记录类型开关: 图像
+    pub history_record_images: bool,
+    /// 历史记录类型开关: 文件引用
+    pub history_record_files: bool,
+    /// 历史排序: "recent"(最近优先)/ "frequent"(次数优先)
+    pub history_sort: String,
+    /// 历史面板唤起快捷键(Tauri 快捷键语法; 空串 = 禁用)
+    pub panel_hotkey: String,
+    /// 序号槽位直贴(Alt+1..6)开关
+    pub slot_hotkeys: bool,
 }
 
 impl Default for Settings {
@@ -38,6 +52,13 @@ impl Default for Settings {
             sync_enabled: true,
             notify_on_sync: true,
             language: String::new(),
+            history_max_entries: 200,
+            history_record_text: true,
+            history_record_images: true,
+            history_record_files: true,
+            history_sort: "recent".to_string(),
+            panel_hotkey: "CmdOrCtrl+Shift+V".to_string(),
+            slot_hotkeys: true,
         }
     }
 }

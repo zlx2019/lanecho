@@ -12,6 +12,35 @@ export interface Settings {
   notifyOnSync: boolean;
   /** 界面语言: "zh" / "en"; 空 = 未初始化 */
   language: string;
+  /** 历史保留条目上限 */
+  historyMaxEntries: number;
+  /** 历史记录类型开关 */
+  historyRecordText: boolean;
+  historyRecordImages: boolean;
+  historyRecordFiles: boolean;
+  /** 历史排序: "recent" / "frequent" */
+  historySort: string;
+  /** 历史面板唤起快捷键(空串 = 禁用) */
+  panelHotkey: string;
+  /** 序号槽位直贴(Alt+1..6)开关 */
+  slotHotkeys: boolean;
+}
+
+/** 历史条目(镜像 history.rs 的 HistoryEntry) */
+export interface HistoryEntryDto {
+  id: string;
+  /** "text" | "image" | "files" */
+  kind: string;
+  text?: string;
+  blobHash?: string;
+  files?: string[];
+  preview: string;
+  contentHash: string;
+  firstCopiedAt: number;
+  lastCopiedAt: number;
+  copyCount: number;
+  origin?: string;
+  pinned: boolean;
 }
 
 /** 本机身份信息 */

@@ -45,6 +45,10 @@ impl Lang {
 pub struct ShellTexts {
     /// 托盘菜单: 同步开关
     pub tray_sync: &'static str,
+    /// 托盘菜单: 暂停记录(无痕模式)
+    pub tray_incognito: &'static str,
+    /// 托盘菜单: 历史面板
+    pub tray_history: &'static str,
     /// 托盘菜单: 打开设置
     pub tray_settings: &'static str,
     /// 托盘菜单: 退出
@@ -72,6 +76,8 @@ impl ShellTexts {
 /// 中文文案
 const ZH: ShellTexts = ShellTexts {
     tray_sync: "剪贴板同步",
+    tray_incognito: "暂停记录",
+    tray_history: "历史面板",
     tray_settings: "打开 lanecho",
     tray_quit: "退出",
     pair_request: "{name} 请求配对",
@@ -82,6 +88,8 @@ const ZH: ShellTexts = ShellTexts {
 /// 英文文案
 const EN: ShellTexts = ShellTexts {
     tray_sync: "Clipboard sync",
+    tray_incognito: "Pause recording",
+    tray_history: "History panel",
     tray_settings: "Open lanecho",
     tray_quit: "Quit",
     pair_request: "Pairing request from {name}",

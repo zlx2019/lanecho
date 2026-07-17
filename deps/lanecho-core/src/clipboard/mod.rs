@@ -174,6 +174,32 @@ pub async fn write_text(text: String) -> Result<(), ClipboardError> {
     .map_err(|_| ClipboardError::TaskJoin)?
 }
 
+/// 把位图写入系统剪贴板(历史条目"选中复制"的图像还原路径)
+pub async fn write_image(width: usize, height: usize, rgba: Vec<u8>) -> Result<(), ClipboardError> {
+    tokio::task::spawn_blocking(move || {
+        let mut cb = arboard::Clipboard::new()?;
+        cb.set_image(arboard::ImageData {
+            width,
+            height,
+            bytes: rgba.into(),
+        })?;
+        Ok(())
+    })
+    .await
+    .map_err(|_| ClipboardError::TaskJoin)?
+}
+
+/// 把文件引用列表写入系统剪贴板(历史条目"选中复制"的文件还原路径)
+pub async fn write_files(paths: Vec<PathBuf>) -> Result<(), ClipboardError> {
+    tokio::task::spawn_blocking(move || {
+        let mut cb = arboard::Clipboard::new()?;
+        cb.set().file_list(&paths)?;
+        Ok(())
+    })
+    .await
+    .map_err(|_| ClipboardError::TaskJoin)?
+}
+
 /// blocking 读取的公共封装: 失败记 debug 日志并归一为 None
 async fn run_blocking<F>(f: F) -> Option<ClipboardContent>
 where

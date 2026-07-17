@@ -38,6 +38,16 @@ export function useTheme() {
     return () => mq.removeEventListener("change", onChange);
   }, []);
 
+  // 跨窗口同步: 历史浮窗是常驻隐藏文档, 主窗切主题写 localStorage 时
+  // 经 storage 事件跟随更新(同源多窗共享 localStorage)
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === THEME_KEY) setPref(storedPref());
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+
   const theme = pref === "system" ? sysTheme : pref;
 
   useEffect(() => {

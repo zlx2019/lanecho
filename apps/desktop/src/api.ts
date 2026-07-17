@@ -1,7 +1,7 @@
 // Tauri commands 的类型化封装
 
 import { invoke } from "@tauri-apps/api/core";
-import type { DeviceDto, SelfInfoDto, Settings } from "./types";
+import type { DeviceDto, HistoryEntryDto, SelfInfoDto, Settings } from "./types";
 
 export const api = {
   /** 本机信息 */
@@ -21,4 +21,18 @@ export const api = {
     invoke<void>("respond_pair", { fingerprint, accept }),
   /** 解除配对 */
   unpairDevice: (fingerprint: string) => invoke<void>("unpair_device", { fingerprint }),
+  /** 历史: 列表(按设置排序, pinned 恒顶) */
+  listHistory: (sort: string) => invoke<HistoryEntryDto[]>("list_history", { sort }),
+  /** 历史: 选中条目还原写入剪贴板(视同用户复制, 会正常广播) */
+  copyHistoryEntry: (id: string) => invoke<void>("copy_history_entry", { id }),
+  /** 历史: 删除单条 / 清空 / 固定 */
+  deleteHistoryEntry: (id: string) => invoke<void>("delete_history_entry", { id }),
+  clearHistory: () => invoke<void>("clear_history"),
+  pinHistoryEntry: (id: string, pinned: boolean) =>
+    invoke<void>("pin_history_entry", { id, pinned }),
+  /** 历史: 磁盘占用字节数 */
+  historyUsage: () => invoke<number>("history_usage"),
+  /** 无痕模式(暂停历史记录, 会话级) */
+  setIncognito: (on: boolean) => invoke<void>("set_incognito", { on }),
+  getIncognito: () => invoke<boolean>("get_incognito"),
 };

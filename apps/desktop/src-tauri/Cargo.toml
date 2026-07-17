@@ -32,3 +32,8 @@ tauri = { version = "2", features = ["config-toml", "tray-icon", "image-png"] }
 tauri-plugin-notification = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-autostart = "2"
+# 历史面板唤起 + 序号槽位直贴(M3, 方案 14.6)
+tauri-plugin-global-shortcut = "2"
+# 历史图像 blobs 的 PNG 编解码(M3, 方案 14.2)
+png = { workspace = true }
+uuid = { workspace = true }

@@ -14,4 +14,8 @@ export const EVENTS = {
   CLIPBOARD_SYNCED: "clipboard-synced",
   /** 同步开关变化 —— 托盘切换回显设置窗(载荷 boolean) */
   SYNC_STATE: "sync-state-changed",
+  /** 历史内容变化(新增/计数/删除/清空), 无载荷 */
+  HISTORY_CHANGED: "history-changed",
+  /** 无痕模式变化 —— 托盘切换回显(载荷 boolean) */
+  INCOGNITO_STATE: "incognito-changed",
 } as const;
