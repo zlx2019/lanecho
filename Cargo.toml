@@ -3,8 +3,9 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/lanecho-core",
-    "crates/lanecho-cli",
+    "deps/lanecho-core",
+    "deps/lanecho-cli",
+    "apps/desktop/src-tauri",
 ]
 
 ### 项目共享配置
@@ -22,7 +23,7 @@ readme = "README.md"
 ### (继承 deskmate 已评审清单的子集; arboard 为 lanecho 新增, 见 docs/PLAN.md 依赖节)
 [workspace.dependencies]
 # 内部核心依赖
-lanecho-core = { path = "crates/lanecho-core" }
+lanecho-core = { path = "deps/lanecho-core" }
 tokio = { version = "1", features = ["full"] }
 rustls = "0.23"
 tokio-rustls = "0.26"

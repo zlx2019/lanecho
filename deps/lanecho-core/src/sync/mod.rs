@@ -116,6 +116,10 @@ pub enum EngineEvent {
         timestamp_ms: u64,
     },
     /// 远端同步已受理, 装配层应将文本写入系统剪贴板
+    ///
+    /// **契约**: 引擎在发出本事件前已登记回声哈希(假定写入必然发生);
+    /// 装配层写入失败时必须调用 [`SyncEngine::cancel_echo`] 撤销登记,
+    /// 否则残留的孤儿哈希会误吞下一次同内容的真实本机复制。
     ApplyRemote {
         /// 同步来的文本(逐字节原样)
         text: String,
@@ -123,6 +127,8 @@ pub enum EngineEvent {
         from: PeerInfo,
         /// 对端复制时刻(Unix 毫秒)
         timestamp_ms: u64,
+        /// 已登记的回声哈希(写入失败时凭此撤销)
+        hash: String,
     },
     /// 一次对外同步的结果(逐目标节点上报)
     SyncSent {
@@ -135,9 +141,11 @@ pub enum EngineEvent {
 
 /// 引擎共享状态(网络会话与各泵任务共用)
 pub(crate) struct Inner {
-    /// 本机身份
-    pub(crate) identity: Arc<DeviceIdentity>,
-    /// 服务端 TLS 配置(全部入站连接共享)
+    /// 本机身份(Mutex<Arc> 支持改名时快照替换 —— 指纹/证书不变, 仅展示名)
+    identity: Mutex<Arc<DeviceIdentity>>,
+    /// 引擎数据目录(身份/配对文件所在; 改名持久化用)
+    data_dir: PathBuf,
+    /// 服务端 TLS 配置(全部入站连接共享; 证书不随改名变, 无需重建)
     pub(crate) server_tls: Arc<rustls::ServerConfig>,
     /// 发现服务
     discovery: DiscoveryService,
@@ -160,6 +168,11 @@ pub(crate) struct Inner {
 }
 
 impl Inner {
+    /// 当前身份快照(Arc 克隆, 廉价)
+    pub(crate) fn current_identity(&self) -> Arc<DeviceIdentity> {
+        Arc::clone(&self.identity.lock().unwrap_or_else(PoisonError::into_inner))
+    }
+
     /// 取配对表锁(毒锁恢复内部数据)
     fn lock_paired(&self) -> MutexGuard<'_, paired::PairedStore> {
         self.paired.lock().unwrap_or_else(PoisonError::into_inner)
@@ -270,11 +283,13 @@ impl Inner {
             tracing::debug!(from = %remote.name, "LWW: 本机剪贴板更新, 忽略远端同步");
             return Ok(());
         }
-        self.push_echo(hash_text(&data));
+        let hash = hash_text(&data);
+        self.push_echo(hash.clone());
         self.emit(EngineEvent::ApplyRemote {
             text: data,
             from: remote.clone(),
             timestamp_ms,
+            hash,
         })
         .await;
         Ok(())
@@ -318,7 +333,8 @@ impl Inner {
             let inner = Arc::clone(self);
             let text = text.clone();
             tokio::spawn(async move {
-                let result = net::sync_transaction(&inner.identity, &peer, seq, timestamp_ms, text)
+                let identity = inner.current_identity();
+                let result = net::sync_transaction(&identity, &peer, seq, timestamp_ms, text)
                     .await
                     .map_err(|e| e.to_string());
                 inner
@@ -362,7 +378,8 @@ impl SyncEngine {
         .await?;
         let (events_tx, events_rx) = mpsc::channel(EVENT_CHANNEL_CAP);
         let inner = Arc::new(Inner {
-            identity,
+            identity: Mutex::new(identity),
+            data_dir: config.data_dir.clone(),
             server_tls,
             discovery,
             paired: Mutex::new(paired::PairedStore::load(&config.data_dir)),
@@ -384,7 +401,24 @@ impl SyncEngine {
 
     /// 本机设备信息
     pub fn local_info(&self) -> PeerInfo {
-        self.inner.identity.peer_info()
+        self.inner.current_identity().peer_info()
+    }
+
+    /// 热更新展示名并即时重新广播(None = 恢复跟随 hostname)
+    ///
+    /// 指纹与证书不变(设备身份不变), 仅 identity.json 的展示名持久化
+    /// 并替换内存快照; 发现层经 update_info 热广播, 对端无"下线再上线"。
+    pub fn set_display_name(&self, name: Option<&str>) -> Result<(), SyncError> {
+        crate::identity::persist_display_name(&self.inner.data_dir, name)?;
+        let refreshed = Arc::new(DeviceIdentity::load_or_create(&self.inner.data_dir)?);
+        let info = refreshed.peer_info();
+        *self
+            .inner
+            .identity
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = refreshed;
+        self.inner.discovery.update_info(&info);
+        Ok(())
     }
 
     /// 实际监听端口(配置 0 时为随机分配结果)
@@ -399,7 +433,8 @@ impl SyncEngine {
             .discovery
             .peer_by_fingerprint(fingerprint)
             .ok_or(SyncError::PeerUnreachable)?;
-        let remote = net::pair_transaction(&self.inner.identity, &peer).await?;
+        let identity = self.inner.current_identity();
+        let remote = net::pair_transaction(&identity, &peer).await?;
         self.inner.add_paired(&remote).await;
         Ok(())
     }
@@ -415,16 +450,24 @@ impl SyncEngine {
     pub async fn unpair(&self, fingerprint: &str) {
         let peer = self.inner.discovery.peer_by_fingerprint(fingerprint);
         self.inner.remove_paired(fingerprint).await;
-        if let Some(peer) = peer
-            && let Err(e) = net::unpair_transaction(&self.inner.identity, &peer).await
-        {
-            tracing::debug!("解除配对通知发送失败(对端下次同步时会被拒): {e}");
+        if let Some(peer) = peer {
+            let identity = self.inner.current_identity();
+            if let Err(e) = net::unpair_transaction(&identity, &peer).await {
+                tracing::debug!("解除配对通知发送失败(对端下次同步时会被拒): {e}");
+            }
         }
     }
 
     /// 切换同步开关(熔断闸): 关闭后不广播也不受理入站同步
     pub fn set_sync_enabled(&self, enabled: bool) {
         self.inner.sync_enabled.store(enabled, Ordering::Relaxed);
+    }
+
+    /// 撤销一条回声登记(装配层写剪贴板失败时调用, 见 [`EngineEvent::ApplyRemote`] 契约)
+    pub fn cancel_echo(&self, hash: &str) {
+        if self.inner.take_echo(hash) {
+            tracing::debug!("剪贴板写入失败, 已撤销对应的回声登记");
+        }
     }
 
     /// 当前在线节点快照

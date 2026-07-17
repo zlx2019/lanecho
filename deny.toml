@@ -69,10 +69,28 @@ feature-depth = 1
 #db-urls = ["https://github.com/rustsec/advisory-db"]
 # A list of advisory IDs to ignore. Note that ignored advisories will still
 # output a note when they are encountered.
-# (2026-07-17 清理: deskmate 的豁免条目在 lanecho 当前依赖树中全部悬空,
-#  已按真实报告清零。M2 引入 Tauri 时若触发拦截, 逐条核实后重新添加 ——
-#  区分真实漏洞与 unmaintained、确认威胁模型是否适用, 并写明理由。)
-ignore = []
+# (2026-07-17 M2 引入 Tauri 后按真实报告核实添加; 与 deskmate 同源结论。
+#  全部为 unmaintained 类公告(非安全漏洞), 来自 Tauri Linux 后端的传递
+#  依赖(wry → webkit2gtk → GTK3 绑定 / unic-*)。GTK3 绑定停止维护是
+#  Tauri 上游已知问题, 待其迁移 GTK4 后随版本升级消除。仅影响 Linux 目标。)
+ignore = [
+  { id = "RUSTSEC-2024-0370", reason = "proc-macro-error 停止维护, Tauri 传递依赖" },
+  { id = "RUSTSEC-2024-0411", reason = "GTK3 绑定停止维护, Tauri Linux 后端传递依赖" },
+  { id = "RUSTSEC-2024-0412", reason = "GTK3 绑定停止维护, Tauri Linux 后端传递依赖" },
+  { id = "RUSTSEC-2024-0413", reason = "GTK3 绑定停止维护, Tauri Linux 后端传递依赖" },
+  { id = "RUSTSEC-2024-0414", reason = "GTK3 绑定停止维护, Tauri Linux 后端传递依赖" },
+  { id = "RUSTSEC-2024-0415", reason = "GTK3 绑定停止维护, Tauri Linux 后端传递依赖" },
+  { id = "RUSTSEC-2024-0416", reason = "GTK3 绑定停止维护, Tauri Linux 后端传递依赖" },
+  { id = "RUSTSEC-2024-0417", reason = "GTK3 绑定停止维护, Tauri Linux 后端传递依赖" },
+  { id = "RUSTSEC-2024-0418", reason = "GTK3 绑定停止维护, Tauri Linux 后端传递依赖" },
+  { id = "RUSTSEC-2024-0419", reason = "GTK3 绑定停止维护, Tauri Linux 后端传递依赖" },
+  { id = "RUSTSEC-2024-0420", reason = "GTK3 绑定停止维护, Tauri Linux 后端传递依赖" },
+  { id = "RUSTSEC-2025-0075", reason = "unic-* 系列停止维护(unmaintained), Tauri 传递依赖" },
+  { id = "RUSTSEC-2025-0080", reason = "unic-* 系列停止维护(unmaintained), Tauri 传递依赖" },
+  { id = "RUSTSEC-2025-0081", reason = "unic-* 系列停止维护(unmaintained), Tauri 传递依赖" },
+  { id = "RUSTSEC-2025-0098", reason = "unic-* 系列停止维护(unmaintained), Tauri 传递依赖" },
+  { id = "RUSTSEC-2025-0100", reason = "unic-* 系列停止维护(unmaintained), Tauri 传递依赖" },
+]
 # If this is true, then cargo deny will use the git executable to fetch advisory database.
 # If this is false, then it uses a built-in git library.
 # Setting this to true can be helpful if you have special authentication requirements that cargo-deny does not support.

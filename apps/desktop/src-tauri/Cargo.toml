@@ -1,0 +1,34 @@
+[package]
+name = "lanecho-desktop"
+description = "lanecho 桌面端: Tauri 2 应用壳"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+
+# 应用壳不继承 workspace 严格 lints(deskmate 同款取舍):
+# Tauri 宏生成代码与命令签名风格同 missing_docs/unwrap_used 等约束相性差
+
+[lib]
+name = "lanecho_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = ["config-toml"] }
+
+[dependencies]
+lanecho-core = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+# tray-icon 为内置 feature(非插件); image-png 供托盘模板图标解码
+tauri = { version = "2", features = ["config-toml", "tray-icon", "image-png"] }
+tauri-plugin-notification = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-autostart = "2"

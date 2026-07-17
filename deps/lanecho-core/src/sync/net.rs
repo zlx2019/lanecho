@@ -213,7 +213,7 @@ async fn serve_conn(inner: Arc<Inner>, acceptor: TlsAcceptor, tcp: TcpStream) {
             &mut stream,
             &ControlMessage::HelloAck {
                 version: PROTOCOL_VERSION.to_string(),
-                info: inner.identity.peer_info(),
+                info: inner.current_identity().peer_info(),
             },
         )
         .await?;

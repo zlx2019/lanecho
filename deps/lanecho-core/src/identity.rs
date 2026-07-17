@@ -144,6 +144,18 @@ impl DeviceIdentity {
     }
 }
 
+/// 持久化展示名到 identity.json(None 表示恢复跟随 hostname)
+///
+/// 只改元数据不动证书/私钥, 指纹(设备身份)不变;
+/// 调用方随后重新 [`DeviceIdentity::load_or_create`] 取新快照。
+pub fn persist_display_name(dir: &Path, name: Option<&str>) -> Result<(), IdentityError> {
+    let path = dir.join(META_FILE);
+    let mut meta: IdentityMeta = serde_json::from_slice(&fs::read(&path)?)?;
+    meta.display_name = name.map(str::to_string);
+    fs::write(&path, serde_json::to_vec_pretty(&meta)?)?;
+    Ok(())
+}
+
 /// 本机平台标识(macos / windows / linux)
 pub fn platform() -> String {
     std::env::consts::OS.to_string()
