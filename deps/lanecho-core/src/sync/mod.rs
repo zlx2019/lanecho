@@ -139,6 +139,19 @@ pub enum EngineEvent {
     },
 }
 
+/// 待决配对请求: 决策通道 + 请求方信息(启动兜底拉取用)
+///
+/// `generation` 区分同指纹的并发请求: 后到顶替先到时, 先到者退出清理
+/// 只删自己那一代, 不得误删顶替者刚插入的句柄。
+struct PendingPair {
+    /// 请求代数(单调递增)
+    generation: u64,
+    /// 请求方设备信息
+    peer: PeerInfo,
+    /// 决策通道(UI 经 respond_pair 回填)
+    tx: oneshot::Sender<bool>,
+}
+
 /// 引擎共享状态(网络会话与各泵任务共用)
 pub(crate) struct Inner {
     /// 本机身份(Mutex<Arc> 支持改名时快照替换 —— 指纹/证书不变, 仅展示名)
@@ -151,6 +164,8 @@ pub(crate) struct Inner {
     discovery: DiscoveryService,
     /// 配对集合
     paired: Mutex<paired::PairedStore>,
+    /// 配对表落盘串行锁(锁内取最新快照, 防并发写乱序回退 —— M3 HistoryStore 同款)
+    paired_io: Arc<tokio::sync::Mutex<()>>,
     /// 引擎事件发送端
     events: mpsc::Sender<EngineEvent>,
     /// 对外同步的单调序号(日志排查用)
@@ -161,8 +176,10 @@ pub(crate) struct Inner {
     echo: Mutex<VecDeque<String>>,
     /// 同步开关(熔断闸)
     sync_enabled: AtomicBool,
-    /// 等待 UI 决策的入站配对请求(指纹 → 决策通道)
-    pending_pairs: Mutex<HashMap<String, oneshot::Sender<bool>>>,
+    /// 等待 UI 决策的入站配对请求(指纹 → 待决记录)
+    pending_pairs: Mutex<HashMap<String, PendingPair>>,
+    /// 配对请求代数计数(见 [`PendingPair::generation`])
+    pending_seq: AtomicU64,
     /// 实际监听端口
     port: u16,
 }
@@ -184,7 +201,7 @@ impl Inner {
     }
 
     /// 取待决配对表锁
-    fn lock_pending(&self) -> MutexGuard<'_, HashMap<String, oneshot::Sender<bool>>> {
+    fn lock_pending(&self) -> MutexGuard<'_, HashMap<String, PendingPair>> {
         self.pending_pairs
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -210,35 +227,64 @@ impl Inner {
     }
 
     /// 写入配对(幂等)+ 落盘 + 事件
-    pub(crate) async fn add_paired(&self, info: &PeerInfo) {
-        let (path, list) = self.lock_paired().insert(info);
-        paired::persist(path, list);
+    pub(crate) async fn add_paired(self: &Arc<Self>, info: &PeerInfo) {
+        self.lock_paired().insert(info);
+        self.persist_paired().await;
         self.emit(EngineEvent::Paired { peer: info.clone() }).await;
     }
 
     /// 移除配对 + 落盘 + 事件(不存在时为空操作)
-    pub(crate) async fn remove_paired(&self, fingerprint: &str) {
-        let (existed, path, list) = self.lock_paired().remove(fingerprint);
-        if !existed {
+    pub(crate) async fn remove_paired(self: &Arc<Self>, fingerprint: &str) {
+        if !self.lock_paired().remove(fingerprint) {
             return;
         }
-        paired::persist(path, list);
+        self.persist_paired().await;
         self.emit(EngineEvent::Unpaired {
             fingerprint: fingerprint.to_string(),
         })
         .await;
     }
 
+    /// 配对表落盘: io 串行 + 锁内取最新快照
+    ///
+    /// 并发变更时若各自携带快照落盘, 完成顺序无保证, 旧快照可能覆盖新
+    /// 快照 —— 最坏是 unpair 掉的对端在重启后"复活"(接收侧安全边界回退)。
+    /// 串行锁内再取快照保证写盘内容单调向前。
+    async fn persist_paired(self: &Arc<Self>) {
+        let inner = Arc::clone(self);
+        let guard = Arc::clone(&self.paired_io).lock_owned().await;
+        let joined = tokio::task::spawn_blocking(move || {
+            let _guard = guard;
+            let (path, list) = {
+                let store = inner.lock_paired();
+                (store.path(), store.list())
+            };
+            paired::write_snapshot(&path, &list);
+        })
+        .await;
+        if joined.is_err() {
+            tracing::warn!("配对表落盘任务中断(内存态仍生效)");
+        }
+    }
+
     /// 入站配对判定: 已配对幂等接受; 否则上抛 UI 弹窗等用户决定
     ///
     /// 同一对端并发重复请求时, 后到顶替先到(先到的等待者收到通道
-    /// 关闭按拒绝处理)—— 5 分钟窗口内的并发重试, 罕见且无害。
-    pub(crate) async fn decide_pair(&self, remote: &PeerInfo) -> bool {
+    /// 关闭按拒绝处理); 先到者退出清理凭代数只删自己那一项。
+    pub(crate) async fn decide_pair(self: &Arc<Self>, remote: &PeerInfo) -> bool {
         if self.is_paired(&remote.fingerprint) {
             return true;
         }
+        let generation = self.pending_seq.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
-        self.lock_pending().insert(remote.fingerprint.clone(), tx);
+        self.lock_pending().insert(
+            remote.fingerprint.clone(),
+            PendingPair {
+                generation,
+                peer: remote.clone(),
+                tx,
+            },
+        );
         self.emit(EngineEvent::PairRequested {
             peer: remote.clone(),
         })
@@ -247,7 +293,16 @@ impl Inner {
             tokio::time::timeout(PAIR_DECISION_TIMEOUT, rx).await,
             Ok(Ok(true))
         );
-        self.lock_pending().remove(&remote.fingerprint);
+        {
+            // 只清理自己那一代: 已被并发请求顶替时, 表里是顶替者的句柄
+            let mut pending = self.lock_pending();
+            if pending
+                .get(&remote.fingerprint)
+                .is_some_and(|p| p.generation == generation)
+            {
+                pending.remove(&remote.fingerprint);
+            }
+        }
         if accepted {
             self.add_paired(remote).await;
         }
@@ -278,9 +333,16 @@ impl Inner {
         if data.len() > MAX_SYNC_TEXT_BYTES {
             return Err(reason_code::TOO_LARGE);
         }
-        // LWW(决策 #7): 本机复制时刻更新(含相等, 保守少一次覆盖)则忽略
-        if timestamp_ms <= self.last_local_copy_ms.load(Ordering::Relaxed) {
-            tracing::debug!(from = %remote.name, "LWW: 本机剪贴板更新, 忽略远端同步");
+        // LWW(决策 #7): 本机复制时刻更新(含相等, 保守少一次覆盖)则忽略。
+        // info 级并携带双方时刻: 时钟漂移会表现为"单向持续拒收", 留排查线索
+        let local_ms = self.last_local_copy_ms.load(Ordering::Relaxed);
+        if timestamp_ms <= local_ms {
+            tracing::info!(
+                from = %remote.name,
+                remote_ms = timestamp_ms,
+                local_ms,
+                "LWW: 本机剪贴板更新, 忽略远端同步(频繁出现时检查双方时钟)"
+            );
             return Ok(());
         }
         let hash = hash_text(&data);
@@ -296,8 +358,14 @@ impl Inner {
     }
 
     /// 登记一次远端写入的回声哈希(容量满时淘汰最旧)
+    ///
+    /// 同哈希只登记一份: watcher 对同内容去重后只产生一次绕回事件, 重复
+    /// 登记(多台远端先后同步同一文本)会残留孤儿, 误吞后续真实本机复制。
     fn push_echo(&self, hash: String) {
         let mut echo = self.lock_echo();
+        if echo.iter().any(|h| *h == hash) {
+            return;
+        }
         if echo.len() >= ECHO_RECENT_CAP {
             echo.pop_front();
         }
@@ -383,12 +451,14 @@ impl SyncEngine {
             server_tls,
             discovery,
             paired: Mutex::new(paired::PairedStore::load(&config.data_dir)),
+            paired_io: Arc::new(tokio::sync::Mutex::new(())),
             events: events_tx,
             seq: AtomicU64::new(0),
             last_local_copy_ms: AtomicU64::new(0),
             echo: Mutex::new(VecDeque::new()),
             sync_enabled: AtomicBool::new(config.sync_enabled),
             pending_pairs: Mutex::new(HashMap::new()),
+            pending_seq: AtomicU64::new(0),
             port,
         });
         let tasks = vec![
@@ -441,9 +511,21 @@ impl SyncEngine {
 
     /// 回填入站配对请求的用户决定(对应 [`EngineEvent::PairRequested`])
     pub fn respond_pair(&self, fingerprint: &str, accept: bool) {
-        if let Some(tx) = self.inner.lock_pending().remove(fingerprint) {
-            let _ = tx.send(accept);
+        if let Some(pending) = self.inner.lock_pending().remove(fingerprint) {
+            let _ = pending.tx.send(accept);
         }
+    }
+
+    /// 等待 UI 决策的入站配对请求快照
+    ///
+    /// 装配层启动兜底用: 事件泵早于前端就绪, 窗口期内到达的
+    /// PairRequested 事件无人监听即丢, 前端挂载时凭此补拉。
+    pub fn pending_pair_requests(&self) -> Vec<PeerInfo> {
+        self.inner
+            .lock_pending()
+            .values()
+            .map(|p| p.peer.clone())
+            .collect()
     }
 
     /// 解除配对: 本地立即生效(安全边界), 并尽力通知对端
@@ -543,6 +625,23 @@ fn spawn_clipboard_pump(
                 tracing::info!(
                     bytes = text.len(),
                     "文本超过同步上限, 不广播(本机历史不受影响)"
+                );
+                continue;
+            }
+            // 帧上限精确校验: JSON 转义最坏使文本膨胀 6 倍(控制字符 \uXXXX),
+            // 裸字节检查不足以保证成帧 <1MiB; 仅对可能越界的大文本预序列化精判,
+            // 否则 write_frame 阶段才失败, 该条同步会对全部对端静默丢失
+            const SYNC_FRAME_OVERHEAD: usize = 256;
+            let frame_budget = crate::protocol::MAX_FRAME_LEN as usize - SYNC_FRAME_OVERHEAD;
+            if text.len() > frame_budget / 6
+                && serde_json::to_string(&text)
+                    .map(|s| s.len())
+                    .unwrap_or(usize::MAX)
+                    > frame_budget
+            {
+                tracing::info!(
+                    bytes = text.len(),
+                    "文本转义后超过协议帧上限, 不广播(本机历史不受影响)"
                 );
                 continue;
             }

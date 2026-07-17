@@ -44,6 +44,7 @@ export default function App() {
   const [usage, setUsage] = useState(0);
   const [hotkeyInput, setHotkeyInput] = useState("");
   const [maxEntriesInput, setMaxEntriesInput] = useState(200);
+  const [saving, setSaving] = useState(false);
 
   // 初始加载设置 + 历史占用 + 无痕状态(托盘切换经事件回显)
   useEffect(() => {
@@ -96,7 +97,9 @@ export default function App() {
 
   /** 开关类设置: 即改即存(三个开关统一语义, 与托盘行为一致) */
   const patchSettings = (patch: Partial<Settings>) => {
-    if (!settings) return;
+    // 保存按钮在途时拒绝: 两条路径都整对象落盘, 并发时基于旧快照的
+    // 一方会覆盖另一方刚写入的字段(快捷键还会被重注册回旧值)
+    if (!settings || saving) return;
     const next = { ...settings, ...patch };
     setSettings(next);
     api.saveSettings(next).catch((e) => setTip(formatError(e)));
@@ -104,7 +107,8 @@ export default function App() {
 
   /** 保存设置(名称走独立命令, 其余整体提交) */
   const save = async () => {
-    if (!settings) return;
+    if (!settings || saving) return;
+    setSaving(true);
     setTip("");
     try {
       const trimmed = nickname.trim();
@@ -128,6 +132,8 @@ export default function App() {
       setTimeout(() => setTip(""), 2500);
     } catch (e) {
       setTip(formatError(e));
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -405,7 +411,7 @@ export default function App() {
 
           <div className="mt-4 flex items-center justify-end gap-3 border-t border-line pt-3">
             {tip && <span className="max-w-64 truncate text-xs text-mist">{tip}</span>}
-            <Button variant="primary" onClick={save}>
+            <Button variant="primary" onClick={save} disabled={saving}>
               {t.settings.save}
             </Button>
           </div>

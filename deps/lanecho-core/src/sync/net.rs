@@ -13,8 +13,8 @@ use tokio_rustls::{TlsAcceptor, TlsConnector};
 
 use crate::PROTOCOL_VERSION;
 use crate::config::{
-    CONNECT_TIMEOUT, HANDSHAKE_TIMEOUT, MAX_CONCURRENT_CONNECTIONS, PAIR_DECISION_TIMEOUT,
-    REPLY_TIMEOUT,
+    CONNECT_TIMEOUT, HANDSHAKE_TIMEOUT, IDLE_TIMEOUT, MAX_CONCURRENT_CONNECTIONS,
+    PAIR_DECISION_TIMEOUT, REPLY_TIMEOUT,
 };
 use crate::discovery::Peer;
 use crate::identity::DeviceIdentity;
@@ -232,9 +232,13 @@ async fn serve_conn(inner: Arc<Inner>, acceptor: TlsAcceptor, tcp: TcpStream) {
         }
     };
 
-    // 事务循环: 对端通常单事务即 Bye; 读失败(断连)直接收尾
+    // 事务循环: 对端通常单事务即 Bye; 读失败(断连)直接收尾。
+    // 帧间隙限时: 半开连接不得占着配额挂死(PairRequest 的 300s 人在环
+    // 等待发生在 decide_pair 内部, 不受此超时影响)
     loop {
-        let Ok(msg) = protocol::read_frame(&mut stream).await else {
+        let Ok(Ok(msg)) =
+            tokio::time::timeout(IDLE_TIMEOUT, protocol::read_frame(&mut stream)).await
+        else {
             break;
         };
         match msg {

@@ -11,6 +11,7 @@
 //! - 文件类型只存路径引用(剪贴板本身即引用, 方案 14.1), 源文件删除后条目失效
 //! - 文本逐字节原样内联(仓库铁律), 截断/转义只发生在 preview 展示层
 
+use std::collections::HashSet;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -128,10 +129,29 @@ impl HistoryStore {
     /// 从数据目录加载(缺失/损坏按空表)
     pub fn load(data_dir: &Path) -> Self {
         let dir = data_dir.join("history");
-        let entries = std::fs::read(dir.join(INDEX_FILE))
+        let entries: Vec<HistoryEntry> = std::fs::read(dir.join(INDEX_FILE))
             .ok()
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or_default();
+        // 孤儿 blob 清理: blob 落盘与 index 落盘非原子, 崩溃/清空竞态会留下
+        // 无条目引用的 blob(占用统计虚高且永不回收); 启动时一次性扫掉。
+        // 在构造期同步执行, 与首次 record 无并发窗口。
+        let referenced: HashSet<&str> = entries
+            .iter()
+            .filter_map(|e| e.blob_hash.as_deref())
+            .collect();
+        if let Ok(blobs) = std::fs::read_dir(dir.join(BLOBS_DIR)) {
+            for file in blobs.flatten() {
+                let name = file.file_name();
+                let Some(hash) = name.to_str().and_then(|n| n.strip_suffix(".png")) else {
+                    continue;
+                };
+                if !referenced.contains(hash) {
+                    tracing::info!(hash, "清理孤儿图像 blob");
+                    let _ = std::fs::remove_file(file.path());
+                }
+            }
+        }
         Self {
             dir,
             entries: Arc::new(Mutex::new(entries)),
@@ -229,6 +249,12 @@ impl HistoryStore {
                 entry.blob_hash = Some(content_hash.to_string());
             }
             ClipboardContent::Files(paths) => {
+                // 非 UTF-8 路径 serde 序列化会失败, 连累整个 index 无法落盘;
+                // lossy 转换后也无法可靠还原路径 —— 直接跳过(极罕见输入)
+                if paths.iter().any(|p| p.to_str().is_none()) {
+                    tracing::info!("文件路径含非 UTF-8 字节, 跳过历史记录");
+                    return RecordOutcome::Skipped;
+                }
                 entry.kind = kind::FILES.to_string();
                 entry.preview = preview_files(paths);
                 entry.files = Some(paths.clone());
@@ -379,36 +405,42 @@ impl HistoryStore {
         let io_lock = Arc::clone(&self.io_lock);
         let dir = self.dir.clone();
         tauri::async_runtime::spawn_blocking(move || {
-            let _guard = io_lock.lock().unwrap_or_else(PoisonError::into_inner);
-            let snapshot = entries
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .clone();
-            let write = || -> std::io::Result<()> {
-                std::fs::create_dir_all(&dir)?;
-                let tmp = dir.join(format!("{INDEX_FILE}.tmp"));
-                std::fs::write(
-                    &tmp,
-                    serde_json::to_vec_pretty(&snapshot).unwrap_or_default(),
-                )?;
-                std::fs::rename(&tmp, dir.join(INDEX_FILE))?;
-                Ok(())
-            };
-            if let Err(e) = write() {
-                tracing::warn!("历史索引落盘失败(内存态仍生效): {e}");
-            }
+            write_index_locked(&io_lock, &entries, &dir);
         });
     }
 
-    /// 同步落盘一次(测试与退出路径用)
-    #[cfg(test)]
-    fn save_sync(&self) {
-        let snapshot = self.lock().clone();
-        let _ = std::fs::create_dir_all(&self.dir);
-        let _ = std::fs::write(
-            self.dir.join(INDEX_FILE),
-            serde_json::to_vec_pretty(&snapshot).unwrap_or_default(),
-        );
+    /// 同步落盘一次(退出 flush 与测试用; 与异步路径共享串行锁)
+    pub fn save_sync(&self) {
+        write_index_locked(&self.io_lock, &self.entries, &self.dir);
+    }
+}
+
+/// io 锁内取最新快照并原子写盘
+///
+/// 序列化失败**绝不写盘**: 曾经的 `unwrap_or_default()` 会把 Err 变成
+/// 空字节原子覆盖 index.json —— 等于静默清空全部历史(含固定条目)。
+fn write_index_locked(io_lock: &Mutex<()>, entries: &Mutex<Vec<HistoryEntry>>, dir: &Path) {
+    let _guard = io_lock.lock().unwrap_or_else(PoisonError::into_inner);
+    let snapshot = entries
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone();
+    let bytes = match serde_json::to_vec_pretty(&snapshot) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            tracing::warn!("历史索引序列化失败, 跳过本次落盘(内存态仍生效): {e}");
+            return;
+        }
+    };
+    let write = || -> std::io::Result<()> {
+        std::fs::create_dir_all(dir)?;
+        let tmp = dir.join(format!("{INDEX_FILE}.tmp"));
+        std::fs::write(&tmp, &bytes)?;
+        std::fs::rename(&tmp, dir.join(INDEX_FILE))?;
+        Ok(())
+    };
+    if let Err(e) = write() {
+        tracing::warn!("历史索引落盘失败(内存态仍生效): {e}");
     }
 }
 

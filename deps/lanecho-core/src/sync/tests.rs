@@ -355,6 +355,128 @@ async fn paired_survives_restart() {
     b.engine.shutdown().await;
 }
 
+/// 未配对来源拒收(安全门第一道): 单边解除后, 对端(仍以为配着)的
+/// 同步被结构化拒绝且不产生 ApplyRemote
+#[tokio::test]
+async fn unpaired_source_is_rejected() {
+    let mut a = start_node(42618).await;
+    let mut b = start_node(42618).await;
+    establish_pair(&mut a, &mut b).await;
+
+    // 仅 B 本地移除(不走 unpair 的对端通知): 模拟"A 还以为配着"的单边解除
+    b.engine.inner.remove_paired(&a.fingerprint).await;
+    wait_event(&mut b.events, |ev| {
+        matches!(ev, EngineEvent::Unpaired { .. }).then_some(())
+    })
+    .await;
+
+    inject_text(&a, "should be rejected by gate", now_ms()).await;
+    let result = wait_event(&mut a.events, |ev| match ev {
+        EngineEvent::SyncSent { result, .. } => Some(result.clone()),
+        _ => None,
+    })
+    .await;
+    let err = result.expect_err("未配对来源的同步应被拒绝");
+    assert!(err.contains("not_paired"), "拒因应含 not_paired: {err}");
+    assert_no_apply(&mut b.events, Duration::from_millis(800)).await;
+
+    a.engine.shutdown().await;
+    b.engine.shutdown().await;
+}
+
+/// 并发配对请求: 后到顶替先到, 先到者的退出清理不得误删后到者的
+/// 决策句柄 —— 用户点"接受"必须在秒级内让存活的那次请求成功
+#[tokio::test]
+async fn concurrent_pair_requests_resolve() {
+    let a = start_node(42619).await;
+    let mut b = start_node(42619).await;
+    wait_discover(&a.engine, &b.fingerprint).await;
+    wait_discover(&b.engine, &a.fingerprint).await;
+
+    let spawn_pair = |engine: Arc<SyncEngine>, target: String| {
+        tokio::spawn(async move { engine.pair(&target).await })
+    };
+    // 两次请求严格先后入表(以 PairRequested 事件为序), 构造顶替场景
+    let first = spawn_pair(Arc::clone(&a.engine), b.fingerprint.clone());
+    wait_event(&mut b.events, |ev| {
+        matches!(ev, EngineEvent::PairRequested { .. }).then_some(())
+    })
+    .await;
+    let second = spawn_pair(Arc::clone(&a.engine), b.fingerprint.clone());
+    wait_event(&mut b.events, |ev| {
+        matches!(ev, EngineEvent::PairRequested { .. }).then_some(())
+    })
+    .await;
+    // 给先到者一拍时间走完"被顶替 → 退出清理"路径, 再回填用户决策
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    b.engine.respond_pair(&a.fingerprint, true);
+
+    let (first, second) = tokio::time::timeout(Duration::from_secs(5), async {
+        (
+            first.await.expect("配对任务崩溃"),
+            second.await.expect("配对任务崩溃"),
+        )
+    })
+    .await
+    .expect("并发配对的两个事务都必须在秒级内有确定结局(不得挂满 300s)");
+    // 顶替语义: 先到者按拒绝处理, 后到者(持有效句柄)成功
+    assert!(first.is_err(), "被顶替的先到请求应按拒绝处理: {first:?}");
+    second.expect("后到请求应配对成功");
+    assert!(
+        a.engine
+            .paired_list()
+            .iter()
+            .any(|p| p.fingerprint == b.fingerprint)
+    );
+
+    a.engine.shutdown().await;
+    b.engine.shutdown().await;
+}
+
+/// 回声孤儿回归: 多台远端先后同步同一文本, 回声只登记一份;
+/// 绕回消费后, 用户"复制别的再复制回同文本"必须正常广播(不被残留吞掉)
+#[tokio::test]
+async fn duplicate_echo_does_not_swallow_real_copy() {
+    let mut a = start_node(42620).await;
+    let mut b = start_node(42620).await;
+    establish_pair(&mut a, &mut b).await;
+
+    // A 两次广播同一文本(现实对应: 多台设备先后同步同内容给 B)
+    let base = now_ms();
+    inject_text(&a, "dup", base).await;
+    wait_event(&mut b.events, |ev| {
+        matches!(ev, EngineEvent::ApplyRemote { .. }).then_some(())
+    })
+    .await;
+    inject_text(&a, "dup", base + 10).await;
+    wait_event(&mut b.events, |ev| {
+        matches!(ev, EngineEvent::ApplyRemote { .. }).then_some(())
+    })
+    .await;
+
+    // 装配层写剪贴板后 watcher 只产生一次绕回(同内容第二次写入被内容去重),
+    // 消费一份回声; 残留的那份(修复前)就是孤儿
+    inject_text(&b, "dup", base + 20).await;
+    // 用户复制别的内容(watcher 的内容去重基线被刷新)
+    inject_text(&b, "other", base + 30).await;
+    wait_event(&mut a.events, |ev| match ev {
+        EngineEvent::ApplyRemote { text, .. } if text == "other" => Some(()),
+        _ => None,
+    })
+    .await;
+    // 用户再复制回同一文本: 必须正常广播, A 应收到
+    inject_text(&b, "dup", base + 40).await;
+    let applied = wait_event(&mut a.events, |ev| match ev {
+        EngineEvent::ApplyRemote { text, .. } if text == "dup" => Some(text.clone()),
+        _ => None,
+    })
+    .await;
+    assert_eq!(applied, "dup");
+
+    a.engine.shutdown().await;
+    b.engine.shutdown().await;
+}
+
 /// 回声表语义(纯数据结构): 一次性消费与容量淘汰
 #[test]
 fn echo_semantics() {

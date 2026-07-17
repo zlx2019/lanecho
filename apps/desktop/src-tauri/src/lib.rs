@@ -108,6 +108,7 @@ pub fn run() {
             commands::list_devices,
             commands::pair_device,
             commands::respond_pair,
+            commands::list_pending_pairs,
             commands::unpair_device,
             commands::list_history,
             commands::copy_history_entry,
@@ -132,9 +133,11 @@ pub fn run() {
                 show_main_window(app_handle);
             }
         }
-        // 真退出: 引擎优雅关闭(goodbye + mDNS 注销, 对端即时感知下线)
+        // 真退出: 引擎优雅关闭(goodbye + mDNS 注销, 对端即时感知下线);
+        // 历史索引同步 flush 一次 —— 异步 save 随进程终止, 最后一批复制会丢
         RunEvent::Exit => {
             let state = app_handle.state::<AppState>();
+            state.history.save_sync();
             tauri::async_runtime::block_on(state.engine.shutdown());
         }
         _ => {}

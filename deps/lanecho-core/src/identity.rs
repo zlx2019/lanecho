@@ -73,9 +73,22 @@ impl DeviceIdentity {
 
     /// 加载数据目录中的既有身份
     fn load(dir: &Path) -> Result<Self, IdentityError> {
-        let meta: IdentityMeta = serde_json::from_slice(&fs::read(dir.join(META_FILE))?)?;
         let cert_der = CertificateDer::from(fs::read(dir.join(CERT_FILE))?);
         let key_der = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(fs::read(dir.join(KEY_FILE))?));
+        // meta 损坏时凭完好的证书重建: 真正的设备身份是证书指纹, 元数据
+        // 可再生(device_id 换新、展示名回退), 好过解析失败拒绝启动且用户无法自救
+        let meta: IdentityMeta = match serde_json::from_slice(&fs::read(dir.join(META_FILE))?) {
+            Ok(meta) => meta,
+            Err(e) => {
+                tracing::warn!("identity.json 解析失败, 以证书为准重建元数据: {e}");
+                let meta = IdentityMeta {
+                    device_id: uuid::Uuid::new_v4().to_string(),
+                    display_name: None,
+                };
+                write_meta(dir, &meta)?;
+                meta
+            }
+        };
         Ok(Self::from_parts(
             meta.device_id,
             meta.display_name.unwrap_or_else(default_display_name),
@@ -98,7 +111,7 @@ impl DeviceIdentity {
             display_name: None,
         };
         fs::create_dir_all(dir)?;
-        fs::write(dir.join(META_FILE), serde_json::to_vec_pretty(&meta)?)?;
+        write_meta(dir, &meta)?;
         fs::write(dir.join(CERT_FILE), cert_der.as_ref())?;
         fs::write(dir.join(KEY_FILE), &key_bytes)?;
         tracing::info!(%device_id, "已生成新设备身份");
@@ -149,10 +162,17 @@ impl DeviceIdentity {
 /// 只改元数据不动证书/私钥, 指纹(设备身份)不变;
 /// 调用方随后重新 [`DeviceIdentity::load_or_create`] 取新快照。
 pub fn persist_display_name(dir: &Path, name: Option<&str>) -> Result<(), IdentityError> {
-    let path = dir.join(META_FILE);
-    let mut meta: IdentityMeta = serde_json::from_slice(&fs::read(&path)?)?;
+    let mut meta: IdentityMeta = serde_json::from_slice(&fs::read(dir.join(META_FILE))?)?;
     meta.display_name = name.map(str::to_string);
-    fs::write(&path, serde_json::to_vec_pretty(&meta)?)?;
+    write_meta(dir, &meta)
+}
+
+/// 原子写 meta 文件(tmp + rename): 直接覆盖被中断会留下半截 JSON,
+/// 下次启动走重建路径白换一个 device_id
+fn write_meta(dir: &Path, meta: &IdentityMeta) -> Result<(), IdentityError> {
+    let tmp = dir.join(format!("{META_FILE}.tmp"));
+    fs::write(&tmp, serde_json::to_vec_pretty(meta)?)?;
+    fs::rename(&tmp, dir.join(META_FILE))?;
     Ok(())
 }
 

@@ -23,7 +23,10 @@ pub const PEER_PROBE_INTERVAL: Duration = Duration::from_secs(30);
 /// 单次探活的 TCP 连接超时
 pub const PEER_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// 节点事件通道容量(满时丢弃, 消费方可用快照兜底)
+/// 事件通道容量。两处复用但溢出语义不同:
+/// - discovery 的节点事件: `try_send` 满时丢弃, 消费方可用快照兜底;
+/// - sync 引擎事件: `send().await` 背压阻塞, 消费端(桌面事件泵)停滞时
+///   发送侧会整体挂住 —— 消费端必须保持快速消费, 不得做慢操作
 pub const EVENT_CHANNEL_CAP: usize = 64;
 
 // ---- 剪贴板监视(watcher, 决策 #4)----
@@ -62,3 +65,7 @@ pub const MAX_CONCURRENT_CONNECTIONS: usize = 64;
 
 /// 未认证阶段(TLS 握手 + 首帧)的超时, 挡住"连上后不说话"的占坑连接
 pub const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// 已认证连接的帧间隙超时: 事务毫秒级完成, 静默挂起的半开连接
+/// (对端睡眠/拔线)不得长期占用连接配额 —— 64 条半开即可瘫痪全部入站
+pub const IDLE_TIMEOUT: Duration = Duration::from_secs(60);

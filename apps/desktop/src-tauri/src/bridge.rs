@@ -234,14 +234,15 @@ fn spawn_event_pump(deps: PumpDeps) {
                     if incognito.load(Ordering::Relaxed) {
                         continue;
                     }
-                    let _ = history_tx
-                        .send(HistoryJob {
+                    send_history_job(
+                        &history_tx,
+                        HistoryJob {
                             content,
                             hash,
                             at: timestamp_ms,
                             origin: None,
-                        })
-                        .await;
+                        },
+                    );
                 }
                 EngineEvent::ApplyRemote {
                     text, from, hash, ..
@@ -258,14 +259,15 @@ fn spawn_event_pump(deps: PumpDeps) {
                     // 远端写入也计入历史(origin = 来源设备名, 方案 14.1);
                     // 回声事件会被引擎吞掉不经 LocalCopied, 此处是唯一入口
                     if !incognito.load(Ordering::Relaxed) {
-                        let _ = history_tx
-                            .send(HistoryJob {
+                        send_history_job(
+                            &history_tx,
+                            HistoryJob {
                                 content: ClipboardContent::Text(text),
                                 hash,
                                 at: now_ms(),
                                 origin: Some(from.name.clone()),
-                            })
-                            .await;
+                            },
+                        );
                     }
                     let (notify, lang) = {
                         let s = lock(&settings);
@@ -292,6 +294,18 @@ fn spawn_event_pump(deps: PumpDeps) {
             }
         }
     });
+}
+
+/// 投递历史记录任务: 满即丢弃并告警, **绝不 await**
+///
+/// 事件泵是引擎事件的唯一消费者, 在此阻塞会经引擎事件通道背压一路
+/// 传导到 discovery(其通道满时真丢 PeerDown, 设备假在线)与入站会话。
+/// 极端爆发下丢一条历史记录, 远比拖垮实时事件可接受 —— 这才真正兑现
+/// "record 不在关键路径"的设计意图。
+fn send_history_job(history_tx: &mpsc::Sender<HistoryJob>, job: HistoryJob) {
+    if let Err(e) = history_tx.try_send(job) {
+        tracing::warn!("历史记录队列已满, 丢弃一条记录: {e}");
+    }
 }
 
 /// 发 Tauri 事件; 失败仅记日志, 不影响引擎

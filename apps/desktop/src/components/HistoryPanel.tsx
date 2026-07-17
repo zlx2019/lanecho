@@ -18,7 +18,7 @@ const hasTauri = "__TAURI_INTERNALS__" in window;
 
 /** 历史浮窗面板 */
 export function HistoryPanel() {
-  const { t } = useI18n();
+  const { t, setLang } = useI18n();
   // 面板是独立 WebView 文档, 需各自应用主题(localStorage 键共享)
   useTheme();
   const [entries, setEntries] = useState<HistoryEntryDto[]>([]);
@@ -26,16 +26,24 @@ export function HistoryPanel() {
   const [selected, setSelected] = useState(0);
   const [error, setError] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  // 高亮来源(键盘/鼠标)与高亮行元素: 仅键盘导航时执行滚动
+  const inputSourceRef = useRef<"keyboard" | "mouse">("keyboard");
+  const highlightElRef = useRef<HTMLDivElement | null>(null);
 
   const reload = useCallback(async () => {
     if (!hasTauri) return;
     try {
       const settings = await api.getSettings();
+      // 语言跟随设置: 本面板是常驻隐藏文档, 主窗切语言时不会重建,
+      // 每次刷新对齐一次(同值 setState 被 React 跳过, 无重渲染成本)
+      if (settings.language === "zh" || settings.language === "en") {
+        setLang(settings.language);
+      }
       setEntries(await api.listHistory(settings.historySort));
     } catch (e) {
       console.error(e);
     }
-  }, []);
+  }, [setLang]);
 
   useEffect(() => {
     if (!hasTauri) return;
@@ -81,6 +89,16 @@ export function HistoryPanel() {
   // 上下界都要夹取: 空列表按方向键可使 selected 变 -1
   const highlight = Math.max(0, Math.min(selected, filtered.length - 1));
 
+  // 高亮行滚入视野 —— 只响应键盘导航。鼠标悬停也滚动的话, 边缘行的
+  // scrollIntoView 会移动鼠标下方的内容, 与 hover 高亮互相触发成回路;
+  // 且键盘滚动把新行送到鼠标下时, 高亮会被鼠标抢走(mousemove 不受此害:
+  // 列表滚动而鼠标未动不产生 mousemove)
+  useEffect(() => {
+    if (inputSourceRef.current === "keyboard") {
+      highlightElRef.current?.scrollIntoView({ block: "nearest" });
+    }
+  }, [highlight]);
+
   /** 选中条目: 写剪贴板并隐藏面板 */
   const choose = async (entry: HistoryEntryDto) => {
     try {
@@ -93,13 +111,18 @@ export function HistoryPanel() {
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
+    // IME 组合期间的按键属于输入法(Enter 确认候选 / ↑↓ 选字 / Esc 取消
+    // 组合), 不得当作列表操作 —— 否则中文搜索打字打一半面板就消失
+    if (e.nativeEvent.isComposing) return;
     if (e.key === "Escape") {
       void getCurrentWindow().hide();
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
+      inputSourceRef.current = "keyboard";
       setSelected((s) => Math.min(s + 1, filtered.length - 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
+      inputSourceRef.current = "keyboard";
       setSelected((s) => Math.max(s - 1, 0));
     } else if (e.key === "Enter" && filtered[highlight]) {
       void choose(filtered[highlight]);
@@ -137,11 +160,19 @@ export function HistoryPanel() {
             <div
               key={entry.id}
               onClick={() => void choose(entry)}
-              onMouseEnter={() => setSelected(index)}
-              // 高亮行随键盘导航滚入视野(block: nearest 幂等, 回调 ref 重复调用无害)
+              // mousemove 而非 mouseenter: 键盘滚动把新行送到静止的鼠标下
+              // 会触发 mouseenter 抢走高亮, 真实移动才产生 mousemove
+              onMouseMove={() => {
+                if (selected !== index) {
+                  inputSourceRef.current = "mouse";
+                  setSelected(index);
+                }
+              }}
               ref={
                 index === highlight
-                  ? (el) => el?.scrollIntoView({ block: "nearest" })
+                  ? (el) => {
+                      highlightElRef.current = el;
+                    }
                   : undefined
               }
               className={`group flex cursor-pointer items-center gap-2 border-b border-line/40 px-3 py-2 last:border-b-0 ${

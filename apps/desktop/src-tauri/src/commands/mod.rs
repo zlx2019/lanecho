@@ -232,6 +232,21 @@ pub fn respond_pair(state: State<'_, AppState>, fingerprint: String, accept: boo
     state.engine.respond_pair(&fingerprint, accept);
 }
 
+/// 待决的入站配对请求快照
+///
+/// 启动兜底: 事件泵先于前端就绪, 窗口期到达的 pair-requested 事件无人
+/// 监听即丢(对端要空等满超时), 前端挂载时凭此补拉; 其余事件类型均有
+/// list_devices 等快照兜底, 唯配对请求缺这一环。
+#[tauri::command]
+pub fn list_pending_pairs(state: State<'_, AppState>) -> Vec<crate::bridge::PeerDto> {
+    state
+        .engine
+        .pending_pair_requests()
+        .iter()
+        .map(crate::bridge::PeerDto::from)
+        .collect()
+}
+
 /// 解除配对(本地立即生效, 尽力通知对端)
 #[tauri::command]
 pub async fn unpair_device(app: tauri::AppHandle, fingerprint: String) -> Result<(), ErrDto> {

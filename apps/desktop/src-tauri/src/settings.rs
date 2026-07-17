@@ -72,10 +72,13 @@ impl Settings {
             .unwrap_or_default()
     }
 
-    /// 持久化到数据目录
+    /// 持久化到数据目录(原子写: 直接覆盖被中断会留下半截 JSON,
+    /// 下次 load 静默回默认值 —— 快捷键/开关/语言全部无声重置)
     pub fn save(&self, data_dir: &Path) -> std::io::Result<()> {
         std::fs::create_dir_all(data_dir)?;
-        let json = serde_json::to_vec_pretty(self).unwrap_or_default();
-        std::fs::write(data_dir.join(SETTINGS_FILE), json)
+        let json = serde_json::to_vec_pretty(self).map_err(std::io::Error::other)?;
+        let tmp = data_dir.join(format!("{SETTINGS_FILE}.tmp"));
+        std::fs::write(&tmp, json)?;
+        std::fs::rename(&tmp, data_dir.join(SETTINGS_FILE))
     }
 }

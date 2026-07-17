@@ -1,7 +1,7 @@
 // Tauri commands 的类型化封装
 
 import { invoke } from "@tauri-apps/api/core";
-import type { DeviceDto, HistoryEntryDto, SelfInfoDto, Settings } from "./types";
+import type { DeviceDto, HistoryEntryDto, PeerDto, SelfInfoDto, Settings } from "./types";
 
 export const api = {
   /** 本机信息 */
@@ -19,6 +19,8 @@ export const api = {
   /** 回应入站配对请求(对应 pair-requested 事件) */
   respondPair: (fingerprint: string, accept: boolean) =>
     invoke<void>("respond_pair", { fingerprint, accept }),
+  /** 待决配对请求快照(挂载补拉, 补启动窗口期丢失的事件) */
+  listPendingPairs: () => invoke<PeerDto[]>("list_pending_pairs"),
   /** 解除配对 */
   unpairDevice: (fingerprint: string) => invoke<void>("unpair_device", { fingerprint }),
   /** 历史: 列表(按设置排序, pinned 恒顶) */
