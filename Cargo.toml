@@ -1,0 +1,74 @@
+### lanecho workspace
+
+[workspace]
+resolver = "3"
+members = [
+    "crates/lanecho-core",
+    "crates/lanecho-cli",
+]
+
+### 项目共享配置
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.96.0"
+authors = ["Zero <zero9501@outlook.com>"]
+homepage = "https://github.com/zlx2019/lanecho"
+repository = "https://github.com/zlx2019/lanecho"
+license = "MIT"
+readme = "README.md"
+
+### 统一依赖版本 && 共享依赖
+### (继承 deskmate 已评审清单的子集; arboard 为 lanecho 新增, 见 docs/PLAN.md 依赖节)
+[workspace.dependencies]
+# 内部核心依赖
+lanecho-core = { path = "crates/lanecho-core" }
+tokio = { version = "1", features = ["full"] }
+rustls = "0.23"
+tokio-rustls = "0.26"
+rustls-pki-types = "1"
+rcgen = "0.14"
+mdns-sd = "0.20"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+blake3 = "1"
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+hostname = "0.4"
+os_info = { version = "3", default-features = false }
+socket2 = "0.6"
+clap = { version = "4", features = ["derive"] }
+# 剪贴板读写(2026-07-17 批准): 纯 Rust 跨平台, tauri-plugin-clipboard-manager 的底层库
+arboard = "3"
+# macOS 平台绑定: 变化戳 NSPasteboard.changeCount(决策 #4)+ 敏感标记检查(6.3);
+# 与 arboard 的既有传递依赖同源, 不引入新供应链
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSPasteboard"] }
+# Windows 平台绑定: 变化戳 GetClipboardSequenceNumber + 敏感标记检查
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_DataExchange",
+] }
+
+### Lint rules
+[workspace.lints.rust]
+unsafe_code = "warn"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+dbg_macro = "warn"
+
+### Production packaging configuration
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
+### Debug packaging configuration
+[profile.dev]

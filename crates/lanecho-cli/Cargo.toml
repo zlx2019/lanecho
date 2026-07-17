@@ -1,0 +1,21 @@
+[package]
+name = "lanecho-cli"
+description = "lanecho 协议联调与验证工具(M1 里程碑交付物)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+readme.workspace = true
+
+[dependencies]
+lanecho-core = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[lints]
+workspace = true

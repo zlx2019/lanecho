@@ -1,0 +1,40 @@
+[package]
+name = "lanecho-core"
+description = "lanecho 核心引擎: 局域网剪贴板同步(发现/身份/TLS/协议/监视/同步)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+readme.workspace = true
+
+[dependencies]
+tokio = { workspace = true }
+rustls = { workspace = true }
+tokio-rustls = { workspace = true }
+rustls-pki-types = { workspace = true }
+rcgen = { workspace = true }
+mdns-sd = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+blake3 = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+hostname = { workspace = true }
+os_info = { workspace = true }
+socket2 = { workspace = true }
+arboard = { workspace = true }
+
+# 平台绑定: 剪贴板变化戳(决策 #4)与敏感标记检查(6.3)
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { workspace = true }
+objc2-app-kit = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true }
+
+[lints]
+workspace = true
