@@ -9,7 +9,9 @@
 //   which answers physical mouse movement only, so a row sliding under a
 //   stationary cursor as the list scrolls does **not** trigger it. SwiftUI's
 //   onHover is enter/exit semantics and cannot manage this; it fights keyboard
-//   navigation over the highlight
+//   navigation over the highlight. The area covers the whole panel: on the
+//   table alone the moves stop dead at its edge, and the list never gets to
+//   give up the highlight on its way to the footer
 // - The list refreshes through reloadData with the selection restored by entry
 //   id, with no view-identity diff (SwiftUI's ForEach(id:) layered with
 //   .id(index) is a dual-identity conflict that scrambles row content)
@@ -141,6 +143,15 @@ final class HistoryPanelViewController: NSViewController {
         effect.maskImage = Self.roundedMask(radius: 10)
         effect.frame = NSRect(origin: .zero, size: Self.contentSize)
         view = effect
+        // Hover tracking spans the **whole panel**, not just the list. On the
+        // table view the events stop the instant the pointer leaves it, so
+        // moving from a row down to a footer menu row never delivered the move
+        // that gives up the highlight — a row stayed lit next to the
+        // highlighted menu row, reading as two selections
+        effect.addTrackingArea(
+            NSTrackingArea(
+                rect: .zero, options: [.mouseMoved, .activeAlways, .inVisibleRect],
+                owner: self, userInfo: nil))
         // No preferredContentSize: the window height comes from
         // preferredHeight hugging the content, and setting it makes AppKit
         // keep resetting the window back to it
@@ -262,12 +273,6 @@ final class HistoryPanelViewController: NSViewController {
         tableView.action = #selector(rowClicked)
         contextMenu.delegate = self
         tableView.menu = contextMenu
-        // The crux of decoupled highlighting: register .mouseMoved only, so
-        // physical movement is the sole trigger
-        tableView.addTrackingArea(
-            NSTrackingArea(
-                rect: .zero, options: [.mouseMoved, .activeAlways, .inVisibleRect],
-                owner: self, userInfo: nil))
 
         scrollView.documentView = tableView
         scrollView.hasVerticalScroller = true
@@ -722,9 +727,15 @@ final class HistoryPanelViewController: NSViewController {
 
     override func mouseMoved(with event: NSEvent) {
         guard !confirming else { return }
-        let point = tableView.convert(event.locationInWindow, from: nil)
-        let row = tableView.row(at: point)
-        guard row >= 0 else {
+        // The point goes through hoverRow twice over: once in panel space to
+        // clip against the list area, once in table space for the row number.
+        // The clip is what keeps a scrolled list from answering for points
+        // that are really on the footer, see hoverRow
+        let row = hoverRow(
+            point: view.convert(event.locationInWindow, from: nil),
+            listRect: scrollView.frame,
+            rowAtPoint: tableView.row(at: tableView.convert(event.locationInWindow, from: nil)))
+        guard let row else {
             // The pointer moved into the search area or the footer, so the
             // list has to give up the highlight; otherwise one row in the list
             // and one footer menu row light up at once, which reads as two
