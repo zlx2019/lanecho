@@ -4,7 +4,7 @@
 <dict>
     <!-- macOS 15+ Local Network Permission: Without this declaration, mDNS will fail silently -->
     <key>NSLocalNetworkUsageDescription</key>
-    <string>lanecho needs access to the local network to discover other devices on the same LAN and synchronize the clipboard.</string>
+    <string>Lanecho needs access to the local network to discover other devices on the same LAN and synchronize the clipboard.</string>
     <key>NSBonjourServices</key>
     <array>
         <string>_lanecho._tcp</string>

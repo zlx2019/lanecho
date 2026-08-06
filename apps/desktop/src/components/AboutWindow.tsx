@@ -35,7 +35,7 @@ export function AboutWindow() {
   return (
     <div className="flex h-screen flex-col items-center justify-center gap-1 px-6 text-center">
       <img src="/logo.svg" alt="" className="h-16 w-16" />
-      <div className="mt-2 text-lg text-fog">lanecho</div>
+      <div className="mt-2 text-lg text-fog">Lanecho</div>
       <div className="text-[11px] text-mist">{t.about.tagline}</div>
 
       <div className="font-gauge mt-3 text-xs text-mist">

@@ -279,7 +279,7 @@ export default function App() {
         <div className="flex items-center gap-3">
           <img src="/logo.svg" className="size-8 rounded-lg" alt="" />
           <div>
-            <div className="text-sm font-medium text-fog">lanecho</div>
+            <div className="text-sm font-medium text-fog">Lanecho</div>
             <div className="text-[11px] text-mist">{t.header.tagline}</div>
           </div>
         </div>

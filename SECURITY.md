@@ -25,7 +25,7 @@ We will confirm the report as soon as possible and disclose it publicly after a 
 
 ## Scope
 
-lanecho handles clipboard contents, which routinely include passwords, tokens and other secrets. Findings in these areas are especially welcome:
+Lanecho handles clipboard contents, which routinely include passwords, tokens and other secrets. Findings in these areas are especially welcome:
 
 - **Pairing and authentication** — anything that lets an unpaired device be accepted, or that lets one device impersonate another (identities are certificate-pinned; the fingerprint is derived from the certificate)
 - **Transport** — weaknesses in the TLS 1.3 mutual authentication, or any path where clipboard data crosses the network without it

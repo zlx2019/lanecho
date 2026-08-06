@@ -18,7 +18,7 @@ final class StatusItemController {
             button.image =
                 Assets.statusItemIcon
                 ?? NSImage(
-                    systemSymbolName: "doc.on.clipboard", accessibilityDescription: "lanecho")
+                    systemSymbolName: "doc.on.clipboard", accessibilityDescription: "Lanecho")
             button.target = self
             button.action = #selector(clicked)
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])

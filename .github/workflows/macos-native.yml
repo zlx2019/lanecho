@@ -48,8 +48,8 @@ jobs:
       - name: Verify bundle
         working-directory: apps/macos
         run: |
-          APP=build/Build/Products/Release/lanecho.app
-          test -x "$APP/Contents/MacOS/lanecho"
+          APP=build/Build/Products/Release/Lanecho.app
+          test -x "$APP/Contents/MacOS/Lanecho"
           test -f "$APP/Contents/Resources/AppIcon.icns"
           test -d "$APP/Contents/Resources/zh-Hans.lproj"
           /usr/libexec/PlistBuddy -c "Print :LSUIElement" "$APP/Contents/Info.plist"

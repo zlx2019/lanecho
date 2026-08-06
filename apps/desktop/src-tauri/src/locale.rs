@@ -110,12 +110,12 @@ const ZH: ShellTexts = ShellTexts {
     tray_about: "关于",
     tray_quit: "退出",
     pair_request: "{name} 请求配对",
-    pair_request_body: "打开 lanecho 接受或拒绝",
+    pair_request_body: "打开 Lanecho 接受或拒绝",
     synced_from: "已从 {name} 同步",
     image_word: "图像",
-    tray_pending: "lanecho — {n} 个配对请求待处理",
-    start_failed_title: "lanecho 启动失败",
-    start_failed_hint: "若同机还开着另一个 lanecho 客户端(端口冲突): \
+    tray_pending: "Lanecho — {n} 个配对请求待处理",
+    start_failed_title: "Lanecho 启动失败",
+    start_failed_hint: "若同机还开着另一个 Lanecho 客户端(端口冲突): \
 先退出对方, 启动本应用改掉端口, 之后即可同时运行。",
 };
 
@@ -127,12 +127,12 @@ const EN: ShellTexts = ShellTexts {
     tray_about: "About",
     tray_quit: "Quit",
     pair_request: "Pairing request from {name}",
-    pair_request_body: "Open lanecho to accept or decline",
+    pair_request_body: "Open Lanecho to accept or decline",
     synced_from: "Synced from {name}",
     image_word: "Image",
-    tray_pending: "lanecho — {n} pairing request(s) pending",
-    start_failed_title: "lanecho failed to start",
-    start_failed_hint: "If another lanecho client is running on this machine \
+    tray_pending: "Lanecho — {n} pairing request(s) pending",
+    start_failed_title: "Lanecho failed to start",
+    start_failed_hint: "If another Lanecho client is running on this machine \
 (port conflict): quit it, start this app to change the port, then run both.",
 };
 

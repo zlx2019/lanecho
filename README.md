@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="./assets/logo.svg" width="96" alt="lanecho logo" />
+  <img src="./assets/logo.svg" width="96" alt="Lanecho logo" />
 </p>
 
-<h1 align="center">lanecho</h1>
+<h1 align="center">Lanecho</h1>
 
 <p align="center">
   Shared clipboard over your LAN — copy on one device, paste on all of them.
@@ -21,7 +21,7 @@
 
 ---
 
-Every device running lanecho becomes a node on your own network. **No server, no account, no cloud** — nothing to sign up for and nothing to trust but the machines in front of you.
+Every device running Lanecho becomes a node on your own network. **No server, no account, no cloud** — nothing to sign up for and nothing to trust but the machines in front of you.
 
 Pair two devices once. From then on, whatever you copy on one is ready to paste on the others, carried device-to-device over a mutually-authenticated TLS 1.3 channel. Everything you copied recently stays in a searchable history, one hotkey away.
 
@@ -59,24 +59,24 @@ Grab a build from [Releases](https://github.com/zlx2019/lanecho/releases).
 
 | Build | Requires | Artifact |
 |---|---|---|
-| **Native — recommended** | macOS 14 Sonoma or later | `lanecho-macos-native_x.y.z_universal.dmg` |
-| Cross-platform | macOS 13 or earlier | `lanecho_x.y.z_aarch64.dmg` / `lanecho_x.y.z_x64.dmg` |
+| **Native — recommended** | macOS 14 Sonoma or later | `Lanecho-macos-native_x.y.z_universal.dmg` |
+| Cross-platform | macOS 13 or earlier | `Lanecho_x.y.z_aarch64.dmg` / `Lanecho_x.y.z_x64.dmg` |
 
 Reach for the cross-platform build on a Mac only when the native one will not run on your system version. Both speak the same protocol and read the same data directory, so either one syncs with every other device on your LAN, and you can switch between them without losing history or pairings.
 
 ### 🪟 Windows
 
-`lanecho_x.y.z_x64-setup.exe` — the NSIS installer registers the inbound firewall rule discovery needs.
+`Lanecho_x.y.z_x64-setup.exe` — the NSIS installer registers the inbound firewall rule discovery needs.
 
 ### 🐧 Linux
 
-`lanecho_x.y.z_amd64.AppImage` or `.deb`. See the FAQ for what is and is not supported there.
+`Lanecho_x.y.z_amd64.AppImage` or `.deb`. See the FAQ for what is and is not supported there.
 
-> Builds are currently unsigned. On macOS, right-click the app and choose **Open** the first time (or run `xattr -cr /Applications/lanecho.app`). Windows SmartScreen may ask for confirmation as well.
+> Builds are currently unsigned. On macOS, right-click the app and choose **Open** the first time (or run `xattr -cr /Applications/Lanecho.app`). Windows SmartScreen may ask for confirmation as well.
 
 ## 🔒 Privacy
 
-lanecho is local-first by design; still, a clipboard tool deserves explicit fine print:
+Lanecho is local-first by design; still, a clipboard tool deserves explicit fine print:
 
 - **Nothing leaves your LAN.** Sync traffic goes device-to-device over TLS 1.3, only to devices you paired. There is no server and no telemetry.
 - **Concealed content is exempt.** Entries carrying the standard markers (macOS `org.nspasteboard.ConcealedType`, Windows `ExcludeClipboardContentFromMonitorProcessing`) are neither recorded nor synced. On Linux these markers are not detected — pause syncing from the panel, or turn on incognito mode, when handling secrets there.
@@ -86,13 +86,13 @@ lanecho is local-first by design; still, a clipboard tool deserves explicit fine
 ## ❓ FAQ
 
 **macOS says the app is damaged / from an unidentified developer.**
-The build is not notarized yet. Right-click → Open once, or clear the quarantine flag with `xattr -cr /Applications/lanecho.app`.
+The build is not notarized yet. Right-click → Open once, or clear the quarantine flag with `xattr -cr /Applications/Lanecho.app`.
 
 **Devices never show up on macOS.**
 macOS 15+ asks for **Local Network** permission on first launch — it must be allowed, otherwise discovery fails silently. Re-enable it under System Settings → Privacy & Security → Local Network.
 
 **Devices never show up on Windows.**
-Discovery needs an inbound firewall rule. The NSIS installer registers it automatically; if you run a portable binary instead, allow `lanecho.exe` for private networks when Windows asks.
+Discovery needs an inbound firewall rule. The NSIS installer registers it automatically; if you run a portable binary instead, allow `Lanecho.exe` for private networks when Windows asks.
 
 **A device I unplugged is still listed.**
 A node that crashes or drops off the network takes up to about 30 seconds to disappear, because it never got to say goodbye and its mDNS record lingers in the cache. Quitting normally removes it at once. The timeouts are deliberately not more aggressive — Wi-Fi hiccups and wake-from-sleep would otherwise make the device list flicker.
@@ -108,7 +108,7 @@ They share the sync port by default, so whichever starts second cannot bind it. 
 The native macOS client is a plain SwiftPM package (`apps/macos`); the cross-platform client is Tauri 2 + Rust (`apps/desktop`), on a shared UI-free engine (`deps/lanecho-core`).
 
 ```bash
-cd apps/macos   && ./build-app.sh                    # lanecho.app
+cd apps/macos   && ./build-app.sh                    # Lanecho.app
 cd apps/desktop && pnpm install && pnpm tauri build  # installer for the current platform
 ```
 

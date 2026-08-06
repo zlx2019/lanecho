@@ -39,8 +39,8 @@ targets:
     info:
       path: App/Info.plist
       properties:
-        CFBundleName: lanecho
-        CFBundleDisplayName: lanecho
+        CFBundleName: Lanecho
+        CFBundleDisplayName: Lanecho
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleIconFile: AppIcon
@@ -48,14 +48,14 @@ targets:
         LSUIElement: true
         NSHumanReadableCopyright: "© 2026 Zero · MIT License"
         NSLocalNetworkUsageDescription:
-          lanecho discovers your other devices on this network to sync the
+          Lanecho discovers your other devices on this network to sync the
           clipboard between them.
         NSBonjourServices:
           - _lanecho._tcp
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.zlx2019.lanecho.mac
-        PRODUCT_NAME: lanecho
+        PRODUCT_NAME: Lanecho
         ENABLE_HARDENED_RUNTIME: "YES"
         COMBINE_HIDPI_IMAGES: "YES"
     scheme:

@@ -198,7 +198,7 @@ private func selfSignedCertDER(for key: P256.Signing.PrivateKey) throws -> [UInt
 /// unavailable, matching the Rust default_display_name
 private func defaultDisplayName() -> String {
     let host = ProcessInfo.processInfo.hostName
-    return host.isEmpty ? "lanecho" : host
+    return host.isEmpty ? "Lanecho" : host
 }
 
 /// OS version description (e.g. "macOS 15.3.1"); constant for the process

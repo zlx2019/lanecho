@@ -150,11 +150,11 @@ jobs:
       - name: Create disk image
         working-directory: apps/macos
         run: |
-          app="build/Build/Products/Release/lanecho.app"
-          test -x "$app/Contents/MacOS/lanecho"
+          app="build/Build/Products/Release/Lanecho.app"
+          test -x "$app/Contents/MacOS/Lanecho"
           # 必须真断言: 只 print 的话, 万一某次只构出单架构, 产物照样会被
           # 命名成 universal 发出去 —— Intel 用户下载后直接打不开
-          archs=$(lipo -archs "$app/Contents/MacOS/lanecho")
+          archs=$(lipo -archs "$app/Contents/MacOS/Lanecho")
           echo "archs: $archs"
           case "$archs" in
             *arm64*) ;;
@@ -167,8 +167,8 @@ jobs:
           staging=$(mktemp -d)
           cp -R "$app" "$staging/"
           ln -s /Applications "$staging/Applications"
-          dmg="lanecho-macos-native_${NATIVE_VERSION}_universal.dmg"
-          hdiutil create -volname "lanecho" -srcfolder "$staging" \
+          dmg="Lanecho-macos-native_${NATIVE_VERSION}_universal.dmg"
+          hdiutil create -volname "Lanecho" -srcfolder "$staging" \
             -ov -format UDZO "$dmg"
           echo "DMG_PATH=apps/macos/$dmg" >> "$GITHUB_ENV"
 

@@ -1,6 +1,6 @@
 [package]
 name = "lanecho-desktop"
-description = "lanecho 桌面端: Tauri 2 应用壳"
+description = "Lanecho desktop"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -13,6 +13,10 @@ license.workspace = true
 [lib]
 name = "lanecho_desktop_lib"
 crate-type = ["lib"]
+
+[[bin]]
+name = "Lanecho"
+path = "src/main.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = ["config-toml"] }

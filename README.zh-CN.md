@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="./assets/logo.svg" width="96" alt="lanecho logo" />
+  <img src="./assets/logo.svg" width="96" alt="Lanecho logo" />
 </p>
 
-<h1 align="center">lanecho</h1>
+<h1 align="center">Lanecho</h1>
 
 <p align="center">
   局域网共享剪贴板 —— 一台设备上复制，所有设备上粘贴。
@@ -21,7 +21,7 @@
 
 ---
 
-每台运行 lanecho 的设备，都会成为你自己网络里的一个节点。**没有服务端，不用注册账号，不经过云端** —— 不需要信任任何人，只需要信任你眼前的这几台机器。
+每台运行 Lanecho 的设备，都会成为你自己网络里的一个节点。**没有服务端，不用注册账号，不经过云端** —— 不需要信任任何人，只需要信任你眼前的这几台机器。
 
 两台设备只配对一次。此后在其中一台上复制的东西，就能直接在其余设备上粘贴，全程在设备之间点对点传输，走双向认证的 TLS 1.3 通道。最近复制过的内容都留在一份可搜索的历史里，一个快捷键就能唤起。
 
@@ -59,24 +59,24 @@
 
 | 版本 | 系统要求 | 安装包 |
 |---|---|---|
-| **原生版 —— 推荐** | macOS 14 Sonoma 及以上 | `lanecho-macos-native_x.y.z_universal.dmg` |
-| 跨平台版 | macOS 13 及更早 | `lanecho_x.y.z_aarch64.dmg` / `lanecho_x.y.z_x64.dmg` |
+| **原生版 —— 推荐** | macOS 14 Sonoma 及以上 | `Lanecho-macos-native_x.y.z_universal.dmg` |
+| 跨平台版 | macOS 13 及更早 | `Lanecho_x.y.z_aarch64.dmg` / `Lanecho_x.y.z_x64.dmg` |
 
 在 Mac 上只有当系统版本跑不了原生版时，才需要退回跨平台版。两者说的是同一套协议、读的是同一份数据目录，所以无论装哪个都能和局域网里的其他设备同步，换着用也不会丢历史与配对关系。
 
 ### 🪟 Windows
 
-`lanecho_x.y.z_x64-setup.exe` —— NSIS 安装包会自动注册设备发现所需的入站防火墙规则。
+`Lanecho_x.y.z_x64-setup.exe` —— NSIS 安装包会自动注册设备发现所需的入站防火墙规则。
 
 ### 🐧 Linux
 
-`lanecho_x.y.z_amd64.AppImage` 或 `.deb`。该平台的支持范围见常见问题。
+`Lanecho_x.y.z_amd64.AppImage` 或 `.deb`。该平台的支持范围见常见问题。
 
-> 目前的构建尚未签名。macOS 首次打开时请右键选择**打开**（或执行 `xattr -cr /Applications/lanecho.app`）；Windows 的 SmartScreen 也可能弹出确认提示。
+> 目前的构建尚未签名。macOS 首次打开时请右键选择**打开**（或执行 `xattr -cr /Applications/Lanecho.app`）；Windows 的 SmartScreen 也可能弹出确认提示。
 
 ## 🔒 隐私
 
-lanecho 从设计上就是本地优先的；不过剪贴板工具理应把细则讲明白：
+Lanecho 从设计上就是本地优先的；不过剪贴板工具理应把细则讲明白：
 
 - **数据不出你的局域网。** 同步流量在设备之间点对点传输，走 TLS 1.3，且只发往你配对过的设备。没有服务端，也没有任何遥测。
 - **敏感内容豁免。** 带有标准标记的条目（macOS 的 `org.nspasteboard.ConcealedType`、Windows 的 `ExcludeClipboardContentFromMonitorProcessing`）既不会被记录，也不会被同步。Linux 上无法识别这些标记 —— 在该平台处理敏感信息时，请从面板暂停同步，或开启无痕模式。
@@ -86,13 +86,13 @@ lanecho 从设计上就是本地优先的；不过剪贴板工具理应把细则
 ## ❓ 常见问题
 
 **macOS 提示应用已损坏 / 来自身份不明的开发者。**
-当前构建尚未公证。右键 → 打开一次即可，或用 `xattr -cr /Applications/lanecho.app` 清除隔离标记。
+当前构建尚未公证。右键 → 打开一次即可，或用 `xattr -cr /Applications/Lanecho.app` 清除隔离标记。
 
 **macOS 上始终看不到其他设备。**
 macOS 15+ 会在首次启动时申请**本地网络**权限 —— 必须允许，否则设备发现会静默失败。可在「系统设置 → 隐私与安全性 → 本地网络」中重新开启。
 
 **Windows 上始终看不到其他设备。**
-设备发现需要一条入站防火墙规则。NSIS 安装包会自动注册；若你运行的是免安装版本，请在 Windows 询问时允许 `lanecho.exe` 在专用网络下通信。
+设备发现需要一条入站防火墙规则。NSIS 安装包会自动注册；若你运行的是免安装版本，请在 Windows 询问时允许 `Lanecho.exe` 在专用网络下通信。
 
 **已经拔网线的设备还挂在列表上。**
 崩溃或断网的节点最多约 30 秒才会消失 —— 它没机会道别，mDNS 记录也还滞留在缓存里。正常退出则会立刻下线。这些超时是刻意不调激进的：否则 Wi-Fi 瞬时丢包和睡眠唤醒会让设备列表不停闪烁。
@@ -108,7 +108,7 @@ macOS 15+ 会在首次启动时申请**本地网络**权限 —— 必须允许�
 macOS 原生版是一个纯 SwiftPM 包（`apps/macos`）；跨平台版是 Tauri 2 + Rust（`apps/desktop`），两者共用一个无 UI 的引擎（`deps/lanecho-core`）。
 
 ```bash
-cd apps/macos   && ./build-app.sh                    # 打包 lanecho.app
+cd apps/macos   && ./build-app.sh                    # 打包 Lanecho.app
 cd apps/desktop && pnpm install && pnpm tauri build  # 构建当前平台的安装包
 ```
 

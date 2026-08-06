@@ -1,5 +1,5 @@
 # Product name: window title bar, installer package, and executable filename
-productName = "lanecho"
+productName = "Lanecho"
 version = "../package.json"
 identifier = "io.github.zlx2019.lanecho"
 
@@ -16,7 +16,7 @@ macOSPrivateApi = true
 csp = "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'"
 
 [[app.windows]]
-title = "lanecho"
+title = "Lanecho"
 width = 520
 height = 460
 minWidth = 420
@@ -25,7 +25,7 @@ visible = false
 
 [[app.windows]]
 label = "panel"
-title = "lanecho history"
+title = "Lanecho History"
 width = 380
 height = 480
 resizable = false
@@ -39,7 +39,7 @@ windowEffects = { effects = ["popover"], state = "active", radius = 12.0 }
 
 [[app.windows]]
 label = "preview"
-title = "lanecho preview"
+title = "Lanecho Preview"
 width = 400
 height = 440
 resizable = false
@@ -60,7 +60,7 @@ publisher = "zlx2019"
 copyright = "Copyright © 2026 zlx2019"
 category = "Utility"
 shortDescription = "LAN shared clipboard"
-longDescription = "lanecho is a desktop app for sharing the clipboard over a local area network: with no centralized server, after two-way device pairing, when content is copied on any one device, the other devices follow instantly, with TLS encryption throughout."
+longDescription = "Lanecho is a desktop app for sharing the clipboard over a local area network: with no centralized server, after two-way device pairing, when content is copied on any one device, the other devices follow instantly, with TLS encryption throughout."
 icon = [
   "icons/32x32.png",
   "icons/128x128.png",

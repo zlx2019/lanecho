@@ -791,7 +791,7 @@ pub fn update_pending_tooltip(app: &tauri::AppHandle) {
     let tooltip = if pending > 0 {
         locale::current(app).tray_pending(pending)
     } else {
-        "lanecho".to_string()
+        "Lanecho".to_string()
     };
     let _ = tray.set_tooltip(Some(tooltip));
 }
@@ -851,7 +851,7 @@ fn toggle_sync_from_tray(app: &tauri::AppHandle) {
 /// kept in full.
 fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     let mut tray = TrayIconBuilder::with_id(TRAY_ID)
-        .tooltip("lanecho")
+        .tooltip("Lanecho")
         .on_tray_icon_event(|tray, event| {
             // Both buttons open the panel (the panel is the main interaction
             // surface and its menu sits at the bottom); Linux never fires

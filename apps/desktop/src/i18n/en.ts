@@ -39,7 +39,7 @@ export const en = {
     idle: "Copied text syncs instantly to paired devices",
   },
   devices: {
-    empty: "No other devices found — open lanecho on another machine",
+    empty: "No other devices found — open Lanecho on another machine",
     online: "online",
     offline: "offline",
     paired: "paired",

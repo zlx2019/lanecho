@@ -11,7 +11,7 @@ fi
 echo "==> Generate an Xcode project"
 xcodegen generate --quiet
 
-APP="build/Build/Products/Release/lanecho.app"
+APP="build/Build/Products/Release/Lanecho.app"
 
 rm -rf "$APP"
 
@@ -41,7 +41,7 @@ codesign --force --sign - "$APP"
 echo "==> Done: $APP"
 if [[ "${1:-}" == "--install" ]]; then
     echo "==> Install to /Applications"
-    rm -rf /Applications/lanecho.app
+    rm -rf /Applications/Lanecho.app
     cp -R "$APP" /Applications/
-    echo "==> Installed: /Applications/lanecho.app"
+    echo "==> Installed: /Applications/Lanecho.app"
 fi
