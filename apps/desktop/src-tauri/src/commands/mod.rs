@@ -62,6 +62,8 @@ impl From<&SyncError> for ErrDto {
                 "disabled" => ErrDto::new("disabled"),
                 "unsupported_type" => ErrDto::new("unsupported_type"),
                 "checksum_mismatch" => ErrDto::new("checksum_mismatch"),
+                "identity_mismatch" => ErrDto::new("identity_mismatch"),
+                "unsupported_version" => ErrDto::new("unsupported_version"),
                 other => ErrDto::with("rejected", other),
             },
             other => ErrDto::with("engine", other),

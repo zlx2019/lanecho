@@ -139,6 +139,8 @@ export const en = {
     too_large: "Content exceeds the peer's size limit",
     disabled: "Peer has paused syncing",
     unsupported_type: "Peer does not support this content type",
+    identity_mismatch: "The peer could not confirm this device's identity",
+    unsupported_version: "The peer does not support this protocol version",
     rejected: "Peer rejected this sync",
     settings_save_failed: "Failed to save settings",
     rename_failed: "Failed to update device name",

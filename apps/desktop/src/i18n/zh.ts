@@ -139,6 +139,8 @@ export const zh = {
     too_large: "内容超过对方的大小限制",
     disabled: "对方已暂停同步",
     unsupported_type: "对方不支持该内容类型",
+    identity_mismatch: "对方无法确认本机身份(证书与声明不一致)",
+    unsupported_version: "对方不支持当前协议版本",
     rejected: "对方拒绝了本次同步",
     settings_save_failed: "设置保存失败",
     rename_failed: "名称更新失败",

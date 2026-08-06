@@ -82,7 +82,7 @@ async fn connect_peer(
 
 /// Outbound handshake: Hello → HelloAck, checking the version and that the
 /// declared fingerprint equals the pinned one
-async fn handshake_out<S>(
+pub(super) async fn handshake_out<S>(
     stream: &mut S,
     identity: &DeviceIdentity,
     expected_fp: &str,
@@ -101,8 +101,17 @@ where
     let reply = tokio::time::timeout(REPLY_TIMEOUT, protocol::read_frame(stream))
         .await
         .map_err(|_| SyncError::Timeout("hello_ack"))??;
-    let ControlMessage::HelloAck { version, info } = reply else {
-        return Err(unexpected("hello_ack", &reply));
+    let (version, info) = match reply {
+        ControlMessage::HelloAck { version, info } => (version, info),
+        // The peer can refuse during the handshake itself (the declared
+        // identity does not match its certificate, an incompatible version).
+        // Surface its reason verbatim: without this the peer closes right
+        // after and all that is left here is a bare "early eof", which says
+        // nothing about what went wrong
+        ControlMessage::SyncRejected { reason_code } => {
+            return Err(SyncError::Rejected(reason_code));
+        }
+        other => return Err(unexpected("hello_ack", &other)),
     };
     protocol::check_version(&version)?;
     // The TLS layer already guarantees the certificate matches the pinned
