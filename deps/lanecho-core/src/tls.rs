@@ -51,10 +51,27 @@ pub fn client_config(
     identity: &DeviceIdentity,
     expected_fingerprint: Option<String>,
 ) -> Result<ClientConfig, TlsError> {
-    let config = ClientConfig::builder()
+    let mut config = ClientConfig::builder()
         .dangerous()
         .with_custom_certificate_verifier(Arc::new(PinnedServerCert::new(expected_fingerprint)))
         .with_client_auth_cert(vec![identity.cert_der.clone()], identity.key_der())?;
+    // **Session resumption stays off, and the client certificate is therefore
+    // sent on every connection.** rustls keeps 256 sessions by default and the
+    // engine caches one ClientConfig per peer fingerprint, so from the second
+    // connection onwards the handshake would resume — and a resumed TLS 1.3
+    // handshake carries no client certificate.
+    //
+    // A peer that reads the fingerprint off the certificate chain after the
+    // handshake (this crate's own accept side) never notices. One that reads
+    // it from a certificate **verification callback** gets nothing at all,
+    // because the callback only runs when a certificate actually arrives —
+    // which is what the native macOS client's NIOSSL server does. It then has
+    // no fingerprint to check the declared identity against, drops the
+    // connection, and the dialer sees a bare "early eof".
+    //
+    // Every transaction here opens its own short connection and says Bye, so
+    // resumption saves close to nothing to begin with.
+    config.resumption = rustls::client::Resumption::disabled();
     Ok(config)
 }
 
@@ -297,6 +314,130 @@ mod tests {
         tls.write_all(b"ping").await.unwrap();
         tls.flush().await.unwrap();
         server_task.await.unwrap();
+    }
+
+    /// Verifier that counts how often a client certificate is verified,
+    /// delegating the actual work to the real one
+    #[derive(Debug)]
+    struct CountingClientCert {
+        inner: AcceptAnyClientCert,
+        calls: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl ClientCertVerifier for CountingClientCert {
+        fn root_hint_subjects(&self) -> &[DistinguishedName] {
+            self.inner.root_hint_subjects()
+        }
+
+        fn verify_client_cert(
+            &self,
+            end_entity: &CertificateDer<'_>,
+            intermediates: &[CertificateDer<'_>],
+            now: UnixTime,
+        ) -> Result<ClientCertVerified, rustls::Error> {
+            self.calls
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.inner
+                .verify_client_cert(end_entity, intermediates, now)
+        }
+
+        fn verify_tls12_signature(
+            &self,
+            message: &[u8],
+            cert: &CertificateDer<'_>,
+            dss: &DigitallySignedStruct,
+        ) -> Result<HandshakeSignatureValid, rustls::Error> {
+            self.inner.verify_tls12_signature(message, cert, dss)
+        }
+
+        fn verify_tls13_signature(
+            &self,
+            message: &[u8],
+            cert: &CertificateDer<'_>,
+            dss: &DigitallySignedStruct,
+        ) -> Result<HandshakeSignatureValid, rustls::Error> {
+            self.inner.verify_tls13_signature(message, cert, dss)
+        }
+
+        fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+            self.inner.supported_verify_schemes()
+        }
+    }
+
+    /// **Regression guard**: reusing one ClientConfig must still send the
+    /// client certificate on every connection.
+    ///
+    /// rustls resumes sessions by default and the engine caches a ClientConfig
+    /// per peer fingerprint, so without `Resumption::disabled()` the second
+    /// connection resumes and carries no client certificate. An accept side
+    /// that takes the fingerprint from a verification callback — the native
+    /// macOS client's NIOSSL server — then has nothing to check the declared
+    /// identity against and drops the connection, which the dialer reports as
+    /// "early eof". Copying a second piece of text was enough to hit it.
+    ///
+    /// Drop the `resumption` line from client_config and this goes red with
+    /// 1 verification instead of 2.
+    #[tokio::test]
+    async fn reused_client_config_still_sends_the_certificate() {
+        let (d1, d2) = (TempDir::new(), TempDir::new());
+        let server_id = Arc::new(DeviceIdentity::load_or_create(&d1.0).unwrap());
+        let client_id = Arc::new(DeviceIdentity::load_or_create(&d2.0).unwrap());
+
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let verifier = CountingClientCert {
+            inner: AcceptAnyClientCert::new(),
+            calls: calls.clone(),
+        };
+        let mut server = ServerConfig::builder()
+            .with_client_cert_verifier(Arc::new(verifier))
+            .with_single_cert(vec![server_id.cert_der.clone()], server_id.key_der())
+            .unwrap();
+        // **The ticketer is what makes this test meaningful.** rustls defaults
+        // to NeverProducesTickets, so a rustls server never offers resumption
+        // and this crate talking to itself could never hit the bug — which is
+        // exactly why only the native macOS client was affected: NIOSSL sits
+        // on BoringSSL, which issues TLS 1.3 tickets by default. Handing out
+        // tickets here reproduces that side.
+        server.ticketer = rustls::crypto::aws_lc_rs::Ticketer::new().unwrap();
+
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let acceptor = TlsAcceptor::from(Arc::new(server));
+        let server_task = tokio::spawn(async move {
+            for _ in 0..2 {
+                let (tcp, _) = listener.accept().await.unwrap();
+                let mut tls = acceptor.accept(tcp).await.unwrap();
+                let mut buf = [0u8; 4];
+                tls.read_exact(&mut buf).await.unwrap();
+                tls.write_all(b"pong").await.unwrap();
+                tls.flush().await.unwrap();
+            }
+        });
+
+        // One config for both connections, exactly as the engine caches it
+        let connector = TlsConnector::from(Arc::new(
+            client_config(&client_id, Some(server_id.fingerprint.clone())).unwrap(),
+        ));
+        for _ in 0..2 {
+            let tcp = TcpStream::connect(addr).await.unwrap();
+            let name = ServerName::try_from("lanecho").unwrap();
+            let mut tls = connector.connect(name, tcp).await.unwrap();
+            tls.write_all(b"ping").await.unwrap();
+            tls.flush().await.unwrap();
+            // The reply has to be read: TLS 1.3 sends NewSessionTicket only
+            // *after* the handshake, so a client that writes and hangs up
+            // never stores a ticket and could never resume on the next
+            // connection — the real dialer reads the HelloAck here
+            let mut back = [0u8; 4];
+            tls.read_exact(&mut back).await.unwrap();
+        }
+        server_task.await.unwrap();
+
+        assert_eq!(
+            calls.load(std::sync::atomic::Ordering::Relaxed),
+            2,
+            "the second connection resumed the session and sent no client certificate"
+        );
     }
 
     /// Pinning a wrong fingerprint must make the client handshake fail
