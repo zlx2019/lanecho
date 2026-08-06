@@ -107,6 +107,10 @@ pub fn run() {
             if let Some(preview) = app.get_webview_window("preview") {
                 let _ = preview.set_ignore_cursor_events(true);
             }
+            // Park the panel before it is ever shown: the first open would
+            // otherwise paint a frame at the placement the system chose when
+            // the window was created (see PANEL_PARKING)
+            park_panel(app.handle());
             // Register the global hotkeys (a failure is not fatal: the tray
             // is still reachable and the bindings can be changed in settings)
             let hotkey_settings = lock(&app.state::<AppState>().settings).clone();
@@ -158,6 +162,7 @@ pub fn run() {
                     );
                     hide_preview_impl(window.app_handle()); // dismiss the card too
                     let _ = window.hide();
+                    park_panel(window.app_handle());
                 }
                 _ => {}
             }
@@ -380,6 +385,35 @@ pub fn resize_settings_window_impl(app: &tauri::AppHandle, content_height: f64) 
     let _ = window.set_size(tauri::PhysicalSize::new(outer.width, target));
 }
 
+/// Where the panel waits while hidden (physical pixels, far outside every
+/// display)
+///
+/// **Positioning a window is queued; showing one is immediate.** tao moves a
+/// window through `set_frame_top_left_point_async`, which hands the work to
+/// the main dispatch queue, while `set_visible(true)` runs
+/// `make_key_and_order_front_sync` on the spot. So however carefully
+/// show_panel works out a position first, `show()` still paints one frame
+/// wherever the window last sat, and only then does the queued move land.
+///
+/// That frame cannot be avoided from here, so it is aimed where nobody can
+/// see it. It matters most on the very first open: "wherever it last sat" is
+/// then the placement the system picked when the window was created —
+/// measured at (-1470, 237) on a two-display setup, a whole screen away from
+/// the tray, which is exactly the window that appeared to flash and vanish.
+const PANEL_PARKING: (i32, i32) = (-30000, -30000);
+
+/// Parks the hidden panel off screen (see `PANEL_PARKING`); every path that
+/// hides the panel has to call this, or the next open flashes a frame at the
+/// spot it was last shown
+fn park_panel(app: &tauri::AppHandle) {
+    if let Some(panel) = app.get_webview_window("panel") {
+        let _ = panel.set_position(tauri::PhysicalPosition::new(
+            PANEL_PARKING.0,
+            PANEL_PARKING.1,
+        ));
+    }
+}
+
 /// Opens the history panel: positions it near the cursor, then shows and
 /// focuses it
 ///
@@ -424,6 +458,11 @@ fn show_panel(app: &tauri::AppHandle) {
             y = y.min(max_y).max(f64::from(mon_pos.y));
         }
         let _ = panel.set_position(tauri::PhysicalPosition::new(x, y));
+    } else {
+        // The panel waits off screen while hidden, so a position **must** be
+        // set on every open — without this fallback a failed cursor read
+        // would leave it parked where it can never be seen again
+        let _ = panel.set_position(tauri::PhysicalPosition::new(40, 40));
     }
     let _ = panel.show();
     let _ = panel.set_focus();
@@ -454,6 +493,7 @@ pub fn hide_panel_impl(app: &tauri::AppHandle) {
     if let Some(panel) = app.get_webview_window("panel") {
         let _ = panel.hide();
     }
+    park_panel(app);
     #[cfg(target_os = "macos")]
     {
         let any_visible = YIELD_BLOCKING_WINDOWS.iter().any(|label| {
