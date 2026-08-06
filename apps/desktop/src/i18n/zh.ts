@@ -40,7 +40,7 @@ export const zh = {
     idle: "复制的文本会即时同步到已配对设备",
   },
   devices: {
-    empty: "未发现其他设备 — 在另一台机器上打开 lanecho 即可互相看见",
+    empty: "未发现其他设备 — 在另一台机器上打开 Lanecho 即可互相看见",
     online: "在线",
     offline: "离线",
     paired: "已配对",

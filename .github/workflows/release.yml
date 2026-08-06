@@ -23,7 +23,7 @@ jobs:
           ver=$(jq -r '.version' apps/desktop/package.json)
           tag="${{ github.ref_name }}"
           if [ "v$ver" != "${tag%%-*}" ] && [ "v$ver" != "$tag" ]; then
-            echo "::error::tag $tag 与应用版本 $ver 不一致"
+            echo "::error::Tag $tag does not match app version $ver"
             exit 1
           fi
 
@@ -136,7 +136,7 @@ jobs:
           ver=$(grep -m1 'MARKETING_VERSION:' apps/macos/project.yml | sed 's/.*"\(.*\)".*/\1/')
           tag="${{ github.ref_name }}"
           if [ "v$ver" != "${tag%%-*}" ] && [ "v$ver" != "$tag" ]; then
-            echo "::error::tag $tag 与原生版版本 $ver 不一致（apps/macos/project.yml）"
+            echo "::error::Tag $tag does not match native app version $ver (apps/macos/project.yml)"
             exit 1
           fi
           echo "NATIVE_VERSION=$ver" >> "$GITHUB_ENV"
@@ -150,25 +150,25 @@ jobs:
       - name: Create disk image
         working-directory: apps/macos
         run: |
-          app="build/Build/Products/Release/lanecho.app"
-          test -x "$app/Contents/MacOS/lanecho"
-          # 必须真断言: 只 print 的话, 万一某次只构出单架构, 产物照样会被
-          # 命名成 universal 发出去 —— Intel 用户下载后直接打不开
-          archs=$(lipo -archs "$app/Contents/MacOS/lanecho")
+          app="build/Build/Products/Release/Lanecho.app"
+          test -x "$app/Contents/MacOS/Lanecho"
+          # Assert both slices so a single-architecture build is never published
+          # as universal and delivered to users with incompatible hardware.
+          archs=$(lipo -archs "$app/Contents/MacOS/Lanecho")
           echo "archs: $archs"
           case "$archs" in
             *arm64*) ;;
-            *) echo "::error::缺 arm64 切片, 不是通用二进制"; exit 1 ;;
+            *) echo "::error::Missing arm64 slice; binary is not universal"; exit 1 ;;
           esac
           case "$archs" in
             *x86_64*) ;;
-            *) echo "::error::缺 x86_64 切片, 不是通用二进制"; exit 1 ;;
+            *) echo "::error::Missing x86_64 slice; binary is not universal"; exit 1 ;;
           esac
           staging=$(mktemp -d)
           cp -R "$app" "$staging/"
           ln -s /Applications "$staging/Applications"
-          dmg="lanecho-macos-native_${NATIVE_VERSION}_universal.dmg"
-          hdiutil create -volname "lanecho" -srcfolder "$staging" \
+          dmg="Lanecho-macos-native_${NATIVE_VERSION}_universal.dmg"
+          hdiutil create -volname "Lanecho" -srcfolder "$staging" \
             -ov -format UDZO "$dmg"
           echo "DMG_PATH=apps/macos/$dmg" >> "$GITHUB_ENV"
 

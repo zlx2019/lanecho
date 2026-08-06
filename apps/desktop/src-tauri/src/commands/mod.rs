@@ -555,7 +555,7 @@ pub async fn show_about(app: tauri::AppHandle) {
         "about",
         tauri::WebviewUrl::App("index.html".into()),
     )
-    .title("lanecho")
+    .title("Lanecho")
     .inner_size(300.0, 322.0)
     .resizable(false)
     .skip_taskbar(true)

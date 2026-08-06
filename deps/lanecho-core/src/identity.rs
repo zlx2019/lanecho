@@ -221,12 +221,12 @@ pub fn fingerprint_of(cert: &CertificateDer<'_>) -> String {
     blake3::hash(cert.as_ref()).to_hex().to_string()
 }
 
-/// Default display name: the hostname, falling back to the fixed "lanecho"
+/// Default display name: the hostname, falling back to the product name
 fn default_display_name() -> String {
     hostname::get()
         .ok()
         .and_then(|h| h.into_string().ok())
-        .unwrap_or_else(|| "lanecho".to_string())
+        .unwrap_or_else(|| "Lanecho".to_string())
 }
 
 #[cfg(test)]

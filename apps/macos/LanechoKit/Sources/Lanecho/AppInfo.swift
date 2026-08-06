@@ -3,7 +3,7 @@
 import Foundation
 
 /// App name
-let appName = "lanecho"
+let appName = "Lanecho"
 
 /// Version: bundled builds read Info.plist; `swift run` has no bundle and
 /// falls back to a development marker
