@@ -79,14 +79,6 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
-            // Tray-resident form: no Dock icon and no Cmd+Tab entry, so
-            // opening the panel never disturbs the Dock. It also rules out
-            // Reopen wrongly raising the main window — an Accessory
-            // application has no Dock icon, so RunEvent::Reopen is never
-            // produced and no time-window workaround is needed
-            #[cfg(target_os = "macos")]
-            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
-
             let data_dir = app.path().app_data_dir()?;
             // Wait synchronously for the engine to come up: state must be
             // managed before the first command arrives. A failure goes
@@ -205,6 +197,16 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("Failed to build Tauri application");
+
+    #[cfg(target_os = "macos")]
+    let mut app = app;
+
+    // Configure the tray-resident macOS process before the event loop starts.
+    // Tao launches with Regular by default; changing the policy from setup()
+    // is already too late and makes the first status-item interaction activate
+    // the application as if it had a normal window.
+    #[cfg(target_os = "macos")]
+    app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
     // A real quit: shut the engine down gracefully (goodbye + mDNS
     // deregistration, so peers see us go offline at once); the history index
