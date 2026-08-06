@@ -165,9 +165,15 @@ export function HistoryPanel() {
         setSelected(0);
         setError("");
         setRenderBase(RENDER_CHUNK_ROWS);
-        // The pointer may have been off the rows when the panel last closed,
-        // so a fresh open starts on the keyboard path
-        setPreviewSuppressed(false);
+        // A fresh open starts **suppressed**. The panel is opened with the
+        // pointer somewhere else entirely — on the tray icon, or wherever it
+        // happened to rest when the hotkey was pressed — and the first row is
+        // highlighted only to give the keyboard a starting point. Lifting the
+        // suppression here made the card pop up beside the panel on its own,
+        // with the pointer on no row at all, and vanish again as soon as the
+        // mouse moved and the row-band probe ran. Moving onto a row lifts it
+        // (onPanelMouseMove), and so does ↑/↓.
+        setPreviewSuppressed(true);
         setClearAsking(false);
         inputRef.current?.focus();
       }),
