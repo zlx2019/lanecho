@@ -28,32 +28,42 @@ final class SettingsWindowController: NSObject {
         self.model = model
     }
 
-    /// Show the settings window (created on first use, reused afterwards;
-    /// activates the app and brings it to the front)
-    func show() {
-        if window == nil {
-            let tabs = SettingsTabViewController()
-            tabs.tabStyle = .toolbar
-            for definition in Self.tabDefinitions(model: model) {
-                tabs.addTabViewItem(Self.makeTab(definition))
-            }
-            let window = NSWindow(contentViewController: tabs)
-            window.styleMask = [.titled, .closable, .miniaturizable]
-            window.toolbarStyle = .preference
-            window.isReleasedWhenClosed = false
-            // Size fixed once: the tallest page decides the window height, the
-            // rest get slack at the bottom
-            window.setContentSize(
-                NSSize(width: settingsPageWidth, height: tabs.tallestPageHeight()))
-            window.center()
-            self.tabs = tabs
-            self.window = window
-            // Grow (never shrink) when dynamic content such as the hotkey
-            // conflict list overflows the window
-            model.onContentSizeChanged = { [weak tabs] in
-                tabs?.growWindowIfContentOverflows()
-            }
+    /// Builds the settings window without showing it.
+    ///
+    /// Creating all five SwiftUI tabs and measuring their fitting sizes is
+    /// synchronous main-thread work. The app calls this once after startup so
+    /// the first settings click only has to reveal the already prepared
+    /// window. `show()` also calls it as a fallback when the user gets there
+    /// before the deferred warm-up runs.
+    func prepare() {
+        guard window == nil else { return }
+        let tabs = SettingsTabViewController()
+        tabs.tabStyle = .toolbar
+        for definition in Self.tabDefinitions(model: model) {
+            tabs.addTabViewItem(Self.makeTab(definition))
         }
+        let window = NSWindow(contentViewController: tabs)
+        window.styleMask = [.titled, .closable, .miniaturizable]
+        window.toolbarStyle = .preference
+        window.isReleasedWhenClosed = false
+        // Size fixed once: the tallest page decides the window height, the
+        // rest get slack at the bottom
+        window.setContentSize(
+            NSSize(width: settingsPageWidth, height: tabs.tallestPageHeight()))
+        window.center()
+        self.tabs = tabs
+        self.window = window
+        // Grow (never shrink) when dynamic content such as the hotkey
+        // conflict list overflows the window
+        model.onContentSizeChanged = { [weak tabs] in
+            tabs?.growWindowIfContentOverflows()
+        }
+    }
+
+    /// Show the prepared settings window; activates the app and brings it to
+    /// the front
+    func show() {
+        prepare()
         Task { await model.load() }
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
