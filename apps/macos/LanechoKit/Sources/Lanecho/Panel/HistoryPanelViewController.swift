@@ -626,6 +626,20 @@ final class HistoryPanelViewController: NSViewController {
         tableView.scrollRowToVisible(next)
     }
 
+    /// ⇧↑ / ⇧↓ and ⌘↑ / ⌘↓: jump the highlight straight to the first or last
+    /// entry
+    ///
+    /// It cannot go through moveSelection with a large delta: with nothing
+    /// selected — which is where the pointer resting on the footer leaves the
+    /// list — that clamps to the first row either way, so ⇧↓ would jump the
+    /// wrong way
+    private func jumpSelection(toFirst: Bool) {
+        guard !entries.isEmpty else { return }
+        let row = toFirst ? 0 : entries.count - 1
+        tableView.selectRowIndexes([row], byExtendingSelection: false)
+        tableView.scrollRowToVisible(row)
+    }
+
     /// Raise the clear confirmation layer
     private func presentClearConfirm() {
         overlayMode = .clearConfirm
@@ -876,6 +890,19 @@ extension HistoryPanelViewController: NSTextFieldDelegate {
             return true
         case #selector(NSResponder.moveDown(_:)):
             if !confirming { moveSelection(1) }
+            return true
+        // Per the system's StandardKeyBinding.dict, ⇧↑/⇧↓ arrive as the
+        // selection-extending commands and ⌘↑/⌘↓ as the document-jump ones;
+        // both ride the same forwarding as the plain arrows. Left alone the
+        // field editor stretches the selection or parks the caret in a
+        // one-line filter box, which is worth nothing
+        case #selector(NSResponder.moveUpAndModifySelection(_:)),
+            #selector(NSResponder.moveToBeginningOfDocument(_:)):
+            if !confirming { jumpSelection(toFirst: true) }
+            return true
+        case #selector(NSResponder.moveDownAndModifySelection(_:)),
+            #selector(NSResponder.moveToEndOfDocument(_:)):
+            if !confirming { jumpSelection(toFirst: false) }
             return true
         case #selector(NSResponder.insertNewline(_:)):
             confirming ? overlayPrimaryClicked() : restoreSelected()
