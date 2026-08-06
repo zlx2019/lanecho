@@ -33,7 +33,7 @@ Pair two devices once. From then on, whatever you copy on one is ready to paste 
 - 🖼️ **Text, images and files** — a screenshot or a batch of files travels the same way a line of text does, streamed out of band so a big paste never stalls the channel.
 - 📡 **Zero-config discovery** — mDNS with a UDP multicast fallback; nearby devices just show up, on any subnet your LAN routes.
 - 🤝 **Pair once, sync forever** — explicit two-way pairing confirmed by fingerprint short-codes, revocable at any time. Unpaired devices are turned away at the protocol layer, not by a setting.
-- ↔️ **Per-device direction** — each paired device can be two-way, send-only, receive-only, or off, so a shared or less trusted machine can receive without ever broadcasting.
+- ↔️ **Directional sync** — set this client to two-way, send-only, receive-only, or off. The selected direction applies to all of its paired devices.
 - 🔐 **Secure by default** — TLS 1.3 mutual authentication with certificate-pinned identities; sync only ever reaches devices you explicitly paired.
 - 🛡️ **Password-manager aware** — entries carrying the standard "concealed" clipboard markers (1Password, Keychain, the Windows cloud-clipboard convention, …) are never recorded and never leave the machine.
 - 🍎 **Native on macOS** — a Swift and AppKit client with no web view in the process, alongside the cross-platform build.
@@ -81,7 +81,7 @@ lanecho is local-first by design; still, a clipboard tool deserves explicit fine
 - **Nothing leaves your LAN.** Sync traffic goes device-to-device over TLS 1.3, only to devices you paired. There is no server and no telemetry.
 - **Concealed content is exempt.** Entries carrying the standard markers (macOS `org.nspasteboard.ConcealedType`, Windows `ExcludeClipboardContentFromMonitorProcessing`) are neither recorded nor synced. On Linux these markers are not detected — pause syncing from the panel, or turn on incognito mode, when handling secrets there.
 - **History is stored in plain files** (a JSON index plus image blobs) under your OS app-data directory, unencrypted. Anyone with access to your user account can read it. Cap the entry count, turn on incognito mode, or clear the history from the panel at any time.
-- **You choose what each device may do.** Recording and syncing are separate switches, per content type, and every paired device has its own direction setting.
+- **Recording and syncing are independent.** Text, images and files each have separate recording and sync switches; this client's direction mode applies to all of its paired devices.
 
 ## ❓ FAQ
 
@@ -98,7 +98,7 @@ Discovery needs an inbound firewall rule. The NSIS installer registers it automa
 A node that crashes or drops off the network takes up to about 30 seconds to disappear, because it never got to say goodbye and its mDNS record lingers in the cache. Quitting normally removes it at once. The timeouts are deliberately not more aggressive — Wi-Fi hiccups and wake-from-sleep would otherwise make the device list flicker.
 
 **What are the Linux limitations?**
-Clipboard access goes through X11 (XWayland on Wayland compositors). On X11 sync works both ways; on Wayland, whether an unfocused app can read the clipboard depends on the compositor's XWayland bridging, so broadcasting your copies may not work reliably — receiving is unaffected. Clipboard history records text only for now, and concealed-content markers are not detected.
+Clipboard access goes through X11 (XWayland on Wayland compositors). Text sync works both ways on X11; on Wayland, whether an unfocused app can read the clipboard depends on the compositor's XWayland bridging, so sending local copies may not work reliably. The Linux watcher currently detects locally copied text only: local image and file copies are neither recorded nor sent. Incoming images and files are still handled when the X11/XWayland clipboard backend accepts them. Concealed-content markers are not detected.
 
 **Can both macOS builds run at the same time?**
 They share the sync port by default, so whichever starts second cannot bind it. Quit one before starting the other — they read the same data directory, so nothing is lost either way.
