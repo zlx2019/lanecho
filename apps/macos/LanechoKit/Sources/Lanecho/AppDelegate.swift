@@ -57,7 +57,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.refreshPendingTooltip()
                 }
                 self.settingsModel = model
-                self.settingsWindow = SettingsWindowController(model: model)
+                let settingsWindow = SettingsWindowController(model: model)
+                self.settingsWindow = settingsWindow
                 panel.onOpenSettings = { [weak self] in
                     self?.settingsWindow?.show()
                 }
@@ -66,6 +67,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     for await event in events {
                         self?.handle(event)
                     }
+                }
+                // Building the settings window creates and measures all five
+                // SwiftUI tabs on the main thread. Defer that work until the
+                // launch path yields, then keep the hidden window ready so
+                // the first settings click is as cheap as later ones.
+                Task { @MainActor [weak settingsWindow] in
+                    await Task.yield()
+                    settingsWindow?.prepare()
                 }
                 // Explain local network permission on first launch: once
                 // denied, discovery fails silently and the user has no way
