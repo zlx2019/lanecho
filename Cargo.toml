@@ -1,0 +1,95 @@
+[workspace]
+resolver = "3"
+members = [
+    "deps/lanecho-core",
+    "deps/lanecho-cli",
+    "apps/desktop/src-tauri",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.96.0"
+authors = ["Zero <zero9501@outlook.com>"]
+homepage = "https://github.com/zlx2019/lanecho"
+repository = "https://github.com/zlx2019/lanecho"
+license = "MIT"
+readme = "README.md"
+
+[workspace.dependencies]
+lanecho-core = { path = "deps/lanecho-core" }
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "net",
+    "io-util",
+    "sync",
+    "time",
+    "signal",
+    "fs",
+] }
+rustls = { version = "0.23", default-features = false, features = [
+    "aws_lc_rs",
+    "logging",
+    "std",
+] }
+tokio-rustls = { version = "0.26", default-features = false, features = [
+    "aws_lc_rs",
+    "logging",
+] }
+rustls-pki-types = "1"
+rcgen = "0.14"
+mdns-sd = "0.20"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+blake3 = "1"
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4"] }
+hostname = "0.4"
+os_info = { version = "3", default-features = false }
+socket2 = { version = "0.6", features = ["all"] }
+clap = { version = "4", features = ["derive"] }
+arboard = "3"
+png = "0.18"
+fast_image_resize = "6"
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = [
+    "NSArray",
+    "NSData",
+    "NSDictionary",
+    "NSString",
+] }
+objc2-app-kit = { version = "0.3", features = [
+    "NSPasteboard",
+    "NSWorkspace",
+    "NSRunningApplication",
+    "NSImage",
+    "NSImageRep",
+    "NSBitmapImageRep",
+] }
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_DataExchange",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[workspace.lints.rust]
+unsafe_code = "warn"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+dbg_macro = "warn"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
+[profile.dev]

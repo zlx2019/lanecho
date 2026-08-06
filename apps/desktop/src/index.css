@@ -1,0 +1,155 @@
+/* lanecho — Theme Base (blue-purple system, light/dark dual themes)
+
+   Theme switching mechanism:
+   Tailwind 4's @theme sets variables in :root, and all utilities use var() for values;
+   Adding data-theme="light" to <html> can change the overall skin (covering block below).
+   Preferences are stored by the front-end in localStorage("lanecho-theme"): system (default, follows system)/light/dark.
+*/
+@import "tailwindcss";
+
+@theme {
+  /* Base layer two: Page bottom / */
+  --color-abyss: #101425;
+  --color-panel: #161b30;
+  /* Outline level 2 (the equivalent solid color on the panel background, to avoid the opacity modifier being applied twice and becoming too faint) */
+  --color-line: #262c45;
+  --color-line-2: #363e63;
+  /* Blue-purple primary color (online / primary action) */
+  --color-sonar: #8b96ff;
+  /* warning red */
+  --color-alert: #f26057;
+  /* green online */
+  --color-live: #3ec06d;
+  /* Text level 3: Primary / Secondary / Tertiary */
+  --color-fog: #eef0fa;
+  --color-mist: #9aa1bd;
+  --color-faint: #666d8c;
+  /* Light base color (chip / icon background) */
+  --color-chip: rgba(139, 150, 255, 0.14);
+
+  /* Monospaced dashboard font (data/labels), all using system fonts and available offline. */
+  --font-gauge: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+}
+
+[data-floating],
+[data-floating] body {
+  background: transparent;
+}
+
+[data-vibrancy],
+[data-vibrancy] body {
+  background: transparent;
+}
+[data-vibrancy] {
+  --color-abyss: rgb(16 20 37 / 0.6);
+  --color-panel: rgb(22 27 48 / 0.72);
+}
+[data-vibrancy][data-theme="light"] {
+  --color-abyss: rgb(238 241 250 / 0.55);
+  --color-panel: rgb(255 255 255 / 0.65);
+}
+
+/* Light theme */
+[data-theme="light"] {
+  --color-abyss: #eef1fa;
+  --color-panel: #ffffff;
+  --color-line: #e3e6f2;
+  --color-line-2: #ccd2e8;
+  --color-sonar: #5b6cf0;
+  --color-alert: #e0483d;
+  --color-live: #22a35a;
+  --color-fog: #232948;
+  --color-mist: #6d7494;
+  --color-faint: #9aa0ba;
+  --color-chip: rgba(91, 108, 240, 0.1);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  background: var(--color-abyss);
+  color: var(--color-fog);
+  font-family:
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC",
+    system-ui, sans-serif;
+  transition: background 0.3s;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+input,
+textarea {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* ---------- Animation ---------- */
+
+/* Pop-up slides in */
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Mask fade-in */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* State point breathing */
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.anim-fade-up {
+  animation: fade-up 0.22s ease-out both;
+}
+.anim-fade-in {
+  animation: fade-in 0.18s ease-out both;
+}
+.anim-breathe {
+  animation: breathe 2.4s ease-in-out infinite;
+}
+
+.gauge-label {
+  font-family: var(--font-gauge);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--color-mist);
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-line-2);
+  border-radius: 4px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}

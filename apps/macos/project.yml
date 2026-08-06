@@ -1,0 +1,62 @@
+name: Lanecho
+options:
+  bundleIdPrefix: io.github.zlx2019
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: false
+
+packages:
+  LanechoKit:
+    path: LanechoKit
+
+settings:
+  base:
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGNING_REQUIRED: "NO"
+    CODE_SIGNING_ALLOWED: "NO"
+
+targets:
+  LanechoApp:
+    type: application
+    platform: macOS
+    sources:
+      - path: LanechoKit/Sources/Lanecho
+        name: Lanecho
+      - path: App/AppIcon.icns
+        buildPhase: resources
+      - path: App/en.lproj
+        buildPhase: resources
+      - path: App/zh-Hans.lproj
+        buildPhase: resources
+    dependencies:
+      - package: LanechoKit
+        product: LanechoKit
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleName: lanecho
+        CFBundleDisplayName: lanecho
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleIconFile: AppIcon
+        LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
+        LSUIElement: true
+        NSHumanReadableCopyright: "© 2026 Zero · MIT License"
+        NSLocalNetworkUsageDescription:
+          lanecho discovers your other devices on this network to sync the
+          clipboard between them.
+        NSBonjourServices:
+          - _lanecho._tcp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.zlx2019.lanecho.mac
+        PRODUCT_NAME: lanecho
+        ENABLE_HARDENED_RUNTIME: "YES"
+        COMBINE_HIDPI_IMAGES: "YES"
+    scheme:
+      configVariants: []

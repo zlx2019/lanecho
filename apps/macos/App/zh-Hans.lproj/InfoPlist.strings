@@ -1,0 +1,2 @@
+/* Local network permission pop-up text (Simplified Chinese) */
+"NSLocalNetworkUsageDescription" = "lanecho 需要访问本地网络, 以发现同一网络中的其他设备并同步剪贴板。";

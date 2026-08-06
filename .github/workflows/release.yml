@@ -1,0 +1,179 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  # Generate Changelog and create GitHub Release
+  changelog:
+    name: Changelog
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Verify tag matches app version
+        run: |
+          ver=$(jq -r '.version' apps/desktop/package.json)
+          tag="${{ github.ref_name }}"
+          if [ "v$ver" != "${tag%%-*}" ] && [ "v$ver" != "$tag" ]; then
+            echo "::error::tag $tag 与应用版本 $ver 不一致"
+            exit 1
+          fi
+
+      - name: Generate changelog
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: ${{ contains(github.ref_name, '-') && format('--unreleased --tag {0}', github.ref_name) || '--latest' }} --strip header
+        env:
+          OUTPUT: CHANGES.md
+          GITHUB_REPO: ${{ github.repository }}
+
+      - name: Create release
+        uses: softprops/action-gh-release@v3
+        with:
+          body_path: CHANGES.md
+          token: ${{ secrets.GITHUB_TOKEN }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
+
+  bundle:
+    name: Bundle ${{ matrix.name }}
+    needs: changelog
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS (Apple Silicon)
+            os: macos-latest
+            args: --target aarch64-apple-darwin
+            rust-target: aarch64-apple-darwin
+          - name: macOS (Intel)
+            os: macos-latest
+            args: --target x86_64-apple-darwin
+            rust-target: x86_64-apple-darwin
+          - name: Linux
+            os: ubuntu-22.04
+            args: ""
+            rust-target: ""
+          - name: Windows
+            os: windows-latest
+            args: ""
+            rust-target: ""
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: apps/desktop/package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+      - name: Install frontend dependencies
+        working-directory: apps/desktop
+        run: pnpm install --frozen-lockfile
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: ${{ matrix.rust-target }}
+      - name: Enable Apple code signing (optional)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            echo "APPLE_CERTIFICATE Not configured, skip signing, produce unsigned package"
+            exit 0
+          fi
+          for var in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            {
+              echo "${var}<<__APPLE_EOF__"
+              printenv "$var"
+              echo "__APPLE_EOF__"
+            } >> "$GITHUB_ENV"
+          done
+      - name: Build and upload bundles
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: apps/desktop
+          tagName: ${{ github.ref_name }}
+          args: ${{ matrix.args }}
+
+  macos-native:
+    name: Bundle macOS (native)
+    needs: changelog
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.4.app || sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Verify tag matches native app version
+        run: |
+          ver=$(grep -m1 'MARKETING_VERSION:' apps/macos/project.yml | sed 's/.*"\(.*\)".*/\1/')
+          tag="${{ github.ref_name }}"
+          if [ "v$ver" != "${tag%%-*}" ] && [ "v$ver" != "$tag" ]; then
+            echo "::error::tag $tag 与原生版版本 $ver 不一致（apps/macos/project.yml）"
+            exit 1
+          fi
+          echo "NATIVE_VERSION=$ver" >> "$GITHUB_ENV"
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Build app bundle
+        working-directory: apps/macos
+        run: ./build-app.sh
+
+      - name: Create disk image
+        working-directory: apps/macos
+        run: |
+          app="build/Build/Products/Release/lanecho.app"
+          test -x "$app/Contents/MacOS/lanecho"
+          # 必须真断言: 只 print 的话, 万一某次只构出单架构, 产物照样会被
+          # 命名成 universal 发出去 —— Intel 用户下载后直接打不开
+          archs=$(lipo -archs "$app/Contents/MacOS/lanecho")
+          echo "archs: $archs"
+          case "$archs" in
+            *arm64*) ;;
+            *) echo "::error::缺 arm64 切片, 不是通用二进制"; exit 1 ;;
+          esac
+          case "$archs" in
+            *x86_64*) ;;
+            *) echo "::error::缺 x86_64 切片, 不是通用二进制"; exit 1 ;;
+          esac
+          staging=$(mktemp -d)
+          cp -R "$app" "$staging/"
+          ln -s /Applications "$staging/Applications"
+          dmg="lanecho-macos-native_${NATIVE_VERSION}_universal.dmg"
+          hdiutil create -volname "lanecho" -srcfolder "$staging" \
+            -ov -format UDZO "$dmg"
+          echo "DMG_PATH=apps/macos/$dmg" >> "$GITHUB_ENV"
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: ${{ env.DMG_PATH }}
+          token: ${{ secrets.GITHUB_TOKEN }}

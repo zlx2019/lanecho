@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>lanecho</title>
+    <script>
+      (function () {
+        var label = null;
+        try {
+          label = window.__TAURI_INTERNALS__.metadata.currentWindow.label;
+        } catch (_) {
+        }
+        if (label === "panel" || label === "preview") {
+          document.documentElement.style.background = "transparent";
+          return;
+        }
+        var pref = null;
+        try {
+          pref = localStorage.getItem("lanecho-theme");
+        } catch (_) {
+        }
+        var dark =
+          pref === "dark" ||
+          (pref !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.style.background = dark ? "#101425" : "#eef1fa";
+      })();
+    </script>
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

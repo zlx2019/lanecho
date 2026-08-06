@@ -1,0 +1,56 @@
+name: macOS Native
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/macos/**"
+      - ".github/workflows/macos-native.yml"
+      - "deps/lanecho-core/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+  pull_request:
+    paths:
+      - "apps/macos/**"
+      - ".github/workflows/macos-native.yml"
+      - "deps/lanecho-core/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+
+concurrency:
+  group: macos-native-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: LanechoKit (swift test)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.4.app || sudo xcode-select -s /Applications/Xcode.app
+      - name: Swift version
+        run: swift --version
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Build lanecho-cli (interop peer)
+        run: cargo build -p lanecho-cli
+      - name: Build
+        working-directory: apps/macos/LanechoKit
+        run: swift build
+      - name: Test
+        working-directory: apps/macos/LanechoKit
+        run: swift test
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Build app bundle
+        working-directory: apps/macos
+        run: ./build-app.sh
+      - name: Verify bundle
+        working-directory: apps/macos
+        run: |
+          APP=build/Build/Products/Release/lanecho.app
+          test -x "$APP/Contents/MacOS/lanecho"
+          test -f "$APP/Contents/Resources/AppIcon.icns"
+          test -d "$APP/Contents/Resources/zh-Hans.lproj"
+          /usr/libexec/PlistBuddy -c "Print :LSUIElement" "$APP/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :NSBonjourServices:0" "$APP/Contents/Info.plist"

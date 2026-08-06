@@ -1,0 +1,42 @@
+[package]
+name = "lanecho-desktop"
+description = "lanecho 桌面端: Tauri 2 应用壳"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+
+
+[lib]
+name = "lanecho_desktop_lib"
+crate-type = ["lib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = ["config-toml"] }
+
+[dependencies]
+lanecho-core = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tauri = { version = "2", features = [
+    "config-toml",
+    "tray-icon",
+    "image-png",
+    "macos-private-api",
+] }
+tauri-plugin-notification = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-global-shortcut = "2"
+png = { workspace = true }
+fast_image_resize = { workspace = true }
+uuid = { workspace = true }
+tauri-plugin-opener = "2.5.4"
+tauri-plugin-dialog = "2.7.2"

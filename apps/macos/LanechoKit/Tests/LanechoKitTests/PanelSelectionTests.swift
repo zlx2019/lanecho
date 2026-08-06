@@ -1,0 +1,77 @@
+// Boundaries of the selection decision made after the list refreshes
+
+import Testing
+
+@testable import LanechoKit
+
+/// An empty list never selects anything
+@Test func refreshOnEmptyListSelectsNothing() {
+    #expect(
+        rowToSelectAfterRefresh(
+            resetSelection: true, hadSelection: true, restoredIndex: nil, previousRow: 3,
+            entryCount: 0) == nil)
+    #expect(
+        rowToSelectAfterRefresh(
+            resetSelection: false, hadSelection: true, restoredIndex: 2, previousRow: 2,
+            entryCount: 0) == nil)
+}
+
+/// Reset semantics (opening the panel, changing the search term) go back to the
+/// first row
+@Test func refreshWithResetGoesToFirstRow() {
+    #expect(
+        rowToSelectAfterRefresh(
+            resetSelection: true, hadSelection: false, restoredIndex: nil, previousRow: -1,
+            entryCount: 5) == 0)
+}
+
+/// The previous selection still exists: follow it by id to its new position,
+/// even when the order changed
+@Test func refreshFollowsRestoredEntry() {
+    #expect(
+        rowToSelectAfterRefresh(
+            resetSelection: false, hadSelection: true, restoredIndex: 4, previousRow: 1,
+            entryCount: 9) == 4)
+}
+
+/// The previous selection was deleted: stay on the same row number, or step
+/// back one when it was the last row
+@Test func refreshFallsBackToPreviousRow() {
+    #expect(
+        rowToSelectAfterRefresh(
+            resetSelection: false, hadSelection: true, restoredIndex: nil, previousRow: 2,
+            entryCount: 9) == 2)
+    // Was on the last row; once the list shrinks it clamps to the new last row
+    #expect(
+        rowToSelectAfterRefresh(
+            resetSelection: false, hadSelection: true, restoredIndex: nil, previousRow: 8,
+            entryCount: 3) == 2)
+}
+
+/// **Regression guard**: if nothing was selected before the refresh (the
+/// pointer is resting on the footer or the search field), nothing must be
+/// selected after it.
+///
+/// Writing the row number as `min(max(previousRow ?? 0, 0), count - 1)` clamps
+/// the -1 that means "no selection" to 0 — a highlight then appears out of
+/// nowhere the moment a remote sync arrives, and the preview card pops up with
+/// it. Change this function back to that clamp and this assertion must go red.
+@Test func refreshKeepsEmptySelectionEmpty() {
+    #expect(
+        rowToSelectAfterRefresh(
+            resetSelection: false, hadSelection: false, restoredIndex: nil, previousRow: -1,
+            entryCount: 6) == nil)
+}
+
+/// An out-of-range restoredIndex is not trusted; the row-number fallback takes
+/// over
+@Test func refreshIgnoresOutOfRangeRestoredIndex() {
+    #expect(
+        rowToSelectAfterRefresh(
+            resetSelection: false, hadSelection: true, restoredIndex: 12, previousRow: 1,
+            entryCount: 4) == 1)
+    #expect(
+        rowToSelectAfterRefresh(
+            resetSelection: false, hadSelection: false, restoredIndex: 12, previousRow: -1,
+            entryCount: 4) == nil)
+}

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- macOS 15+ Local Network Permission: Without this declaration, mDNS will fail silently -->
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>lanecho needs access to the local network to discover other devices on the same LAN and synchronize the clipboard.</string>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_lanecho._tcp</string>
+    </array>
+</dict>
+</plist>
