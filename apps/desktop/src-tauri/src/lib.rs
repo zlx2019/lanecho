@@ -40,6 +40,17 @@ const TRAY_ID: &str = "main-tray";
 /// the closing half of a toggle and returns.
 static LAST_PANEL_BLUR_HIDE_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+/// When the preview card was last shown on Windows (Unix milliseconds)
+///
+/// Showing a second top-level WebView can briefly blur the panel even though
+/// the preview is non-focusable. Ignore only that narrow transition; a normal
+/// click away still dismisses the panel once this guard expires.
+#[cfg(target_os = "windows")]
+static LAST_PREVIEW_SHOW_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+#[cfg(target_os = "windows")]
+const PREVIEW_FOCUS_GUARD_MS: u64 = 300;
+
 /// Application entry point
 pub fn run() {
     init_logging();
@@ -107,6 +118,18 @@ pub fn run() {
             if let Some(preview) = app.get_webview_window("preview") {
                 let _ = preview.set_ignore_cursor_events(true);
             }
+            // WebView transparency alone leaves the black native window
+            // surface visible outside the CSS border radius on Windows. Clip
+            // the actual HWNDs to the same radius; preview resize events keep
+            // its dynamic-height region current.
+            #[cfg(target_os = "windows")]
+            for label in ["panel", "preview"] {
+                if let Some(window) = app.get_webview_window(label)
+                    && let Ok(size) = window.inner_size()
+                {
+                    update_floating_window_shape(&window.as_ref().window(), size);
+                }
+            }
             // Park the panel before it is ever shown: the first open would
             // otherwise paint a frame at the placement the system chose when
             // the window was created (see PANEL_PARKING)
@@ -150,12 +173,26 @@ pub fn run() {
                     api.prevent_close();
                     let _ = window.hide();
                 }
+                WindowEvent::Resized(size)
+                    if matches!(window.label(), "panel" | "preview") =>
+                {
+                    update_floating_window_shape(window, *size);
+                }
+                WindowEvent::ScaleFactorChanged { new_inner_size, .. }
+                    if matches!(window.label(), "panel" | "preview") =>
+                {
+                    update_floating_window_shape(window, *new_inner_size);
+                }
                 // The history panel hides on blur.
                 // Only record and hide while it is visible: hide itself fires
                 // another blur, which must not be timestamped again
                 WindowEvent::Focused(false)
                     if window.label() == "panel" && window.is_visible().unwrap_or(false) =>
                 {
+                    if panel_blur_is_preview_transition(window.app_handle()) {
+                        let _ = window.set_focus();
+                        return;
+                    }
                     LAST_PANEL_BLUR_HIDE_MS.store(
                         lanecho_core::clipboard::now_ms(),
                         std::sync::atomic::Ordering::Relaxed,
@@ -332,6 +369,73 @@ async fn wait_for_termination() {
     }
 }
 
+/// Whether a panel blur is the transient focus handoff caused by showing the
+/// non-focusable preview window on Windows
+fn panel_blur_is_preview_transition(app: &tauri::AppHandle) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        let elapsed = lanecho_core::clipboard::now_ms()
+            .saturating_sub(LAST_PREVIEW_SHOW_MS.load(std::sync::atomic::Ordering::Relaxed));
+        elapsed < PREVIEW_FOCUS_GUARD_MS
+            && app
+                .get_webview_window("preview")
+                .and_then(|window| window.is_visible().ok())
+                .unwrap_or(false)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = app;
+        false
+    }
+}
+
+/// Clip floating WebView windows to their visible CSS radius on Windows
+///
+/// A transparent WebView still sits over a native window surface. WebView2
+/// exposes that surface as black at the four transparent corners, so clipping
+/// the HWND itself is what makes the corners genuinely absent. `SetWindowRgn`
+/// takes ownership of the region when it succeeds.
+fn update_floating_window_shape(window: &tauri::Window, size: tauri::PhysicalSize<u32>) {
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Graphics::Gdi::{CreateRoundRectRgn, DeleteObject, SetWindowRgn};
+
+        const CORNER_RADIUS_LOGICAL: f64 = 12.0;
+
+        let (Ok(hwnd), Ok(width), Ok(height)) = (
+            window.hwnd(),
+            i32::try_from(size.width),
+            i32::try_from(size.height),
+        ) else {
+            return;
+        };
+        let scale = window.scale_factor().unwrap_or(1.0);
+        let diameter = (CORNER_RADIUS_LOGICAL * 2.0 * scale).round().max(1.0) as i32;
+        // GDI regions exclude the right and bottom coordinates. Adding one
+        // keeps the last pixel row/column while still cutting the corners.
+        let region = unsafe {
+            CreateRoundRectRgn(
+                0,
+                0,
+                width.saturating_add(1),
+                height.saturating_add(1),
+                diameter,
+                diameter,
+            )
+        };
+        if region.is_invalid() {
+            return;
+        }
+        if unsafe { SetWindowRgn(hwnd, Some(region), true) } == 0 {
+            let _ = unsafe { DeleteObject(region.into()) };
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (window, size);
+    }
+}
+
 /// Raises the main window (shared by the tray, single-instance and panel
 /// footer entry points)
 pub fn show_main_window(app: &tauri::AppHandle) {
@@ -349,14 +453,34 @@ const SETTINGS_MIN_HEIGHT: f64 = 320.0;
 /// room for the menu bar / taskbar plus some breathing space)
 const SETTINGS_MAX_HEIGHT_RATIO: f64 = 0.88;
 
+/// Computes the inner window size needed for the current settings content
+///
+/// `set_size` expects an inner size. Preserving `inner.width` is essential on
+/// Windows: feeding the wider outer frame back as an inner width adds the
+/// border again on every ResizeObserver pass and makes the window grow forever.
+fn settings_target_inner_size(
+    inner: tauri::PhysicalSize<u32>,
+    outer: tauri::PhysicalSize<u32>,
+    scale: f64,
+    content_height: f64,
+    work_area_height: Option<u32>,
+) -> tauri::PhysicalSize<u32> {
+    let decoration_height = outer.height.saturating_sub(inner.height);
+    let mut target_height = (content_height.max(0.0) * scale).round() as u32;
+    target_height = target_height.max((SETTINGS_MIN_HEIGHT * scale).round() as u32);
+    if let Some(work_area_height) = work_area_height {
+        let max_outer = (f64::from(work_area_height) * SETTINGS_MAX_HEIGHT_RATIO).round() as u32;
+        target_height = target_height.min(max_outer.saturating_sub(decoration_height));
+    }
+    tauri::PhysicalSize::new(inner.width, target_height)
+}
+
 /// Fits the settings window height to its content: a category page with
 /// little in it shrinks the window instead of leaving a large blank area
 ///
-/// Only the height changes, never the width (a width the user dragged is
-/// preserved); the frontend measures the webview content height, so this adds
-/// the window decoration (title bar) height and clamps to
-/// [minimum, usable monitor height] — with very long content the window stays
-/// on screen and the main area scrolls itself.
+/// Only the inner height changes; the current inner width is preserved. The
+/// maximum is based on the monitor work area so the Windows taskbar remains
+/// unobstructed.
 pub fn resize_settings_window_impl(app: &tauri::AppHandle, content_height: f64) {
     let Some(window) = app.get_webview_window("main") else {
         return;
@@ -368,21 +492,18 @@ pub fn resize_settings_window_impl(app: &tauri::AppHandle, content_height: f64) 
     ) else {
         return;
     };
-    // Decoration height = outer frame - content area (the title bar); the
-    // frontend measures the content area height
-    let decoration = outer.height.saturating_sub(inner.height);
-    let mut target = (content_height * scale) as u32 + decoration;
-    if let Ok(Some(monitor)) = window.current_monitor() {
-        let max = (f64::from(monitor.size().height) * SETTINGS_MAX_HEIGHT_RATIO) as u32;
-        target = target.min(max);
-    }
-    target = target.max((SETTINGS_MIN_HEIGHT * scale) as u32 + decoration);
+    let work_area_height = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .map(|monitor| monitor.work_area().size.height);
+    let target = settings_target_inner_size(inner, outer, scale, content_height, work_area_height);
     // Jitter guard: a 1px difference does not trigger set_size (keeps it from
     // feeding back into the frontend ResizeObserver)
-    if target.abs_diff(outer.height) < 2 {
+    if target.height.abs_diff(inner.height) < 2 {
         return;
     }
-    let _ = window.set_size(tauri::PhysicalSize::new(outer.width, target));
+    let _ = window.set_size(target);
 }
 
 /// Where the panel waits while hidden (physical pixels, far outside every
@@ -402,6 +523,9 @@ pub fn resize_settings_window_impl(app: &tauri::AppHandle, content_height: f64) 
 /// the tray, which is exactly the window that appeared to flash and vanish.
 const PANEL_PARKING: (i32, i32) = (-30000, -30000);
 
+/// Gap between the history panel and the usable monitor edge (logical pixels)
+const PANEL_EDGE_GAP: f64 = 8.0;
+
 /// Parks the hidden panel off screen (see `PANEL_PARKING`); every path that
 /// hides the panel has to call this, or the next open flashes a frame at the
 /// spot it was last shown
@@ -414,14 +538,34 @@ fn park_panel(app: &tauri::AppHandle) {
     }
 }
 
+/// Keeps the history panel inside a monitor's usable work area
+fn place_panel(
+    cursor: (i32, i32),
+    panel_size: (i32, i32),
+    gap: i32,
+    area: MonitorRect,
+) -> (i32, i32) {
+    let min_x = area.left.saturating_add(gap);
+    let min_y = area.top.saturating_add(gap);
+    let max_x = area
+        .right
+        .saturating_sub(gap)
+        .saturating_sub(panel_size.0)
+        .max(min_x);
+    let max_y = area
+        .bottom
+        .saturating_sub(gap)
+        .saturating_sub(panel_size.1)
+        .max(min_y);
+    (cursor.0.clamp(min_x, max_x), cursor.1.clamp(min_y, max_y))
+}
+
 /// Opens the history panel: positions it near the cursor, then shows and
 /// focuses it
 ///
-/// It must be clamped to the edges of the monitor under the cursor: the tray
-/// icon sits right in a screen corner (top right on macOS, bottom right on
-/// Windows), so putting the panel's top-left corner at the cursor pushes the
-/// whole panel off screen — the OS does not pull a window back on screen when
-/// the application positioned it itself with set_position.
+/// It must be clamped to the **work area** under the cursor rather than the
+/// full monitor: the latter includes the Windows taskbar, so a bottom-right
+/// tray click otherwise places the panel directly over the notification area.
 fn show_panel(app: &tauri::AppHandle) {
     let Some(panel) = app.get_webview_window("panel") else {
         return;
@@ -440,24 +584,25 @@ fn show_panel(app: &tauri::AppHandle) {
         return;
     }
     if let Ok(pos) = app.cursor_position() {
-        let (mut x, mut y) = (pos.x, pos.y);
         // The fallback is a logical size (380×480 from Tauri.toml) and has to
         // be scaled into the physical coordinate space
+        let scale = panel.scale_factor().unwrap_or(1.0);
         let panel_size = panel.outer_size().unwrap_or_else(|_| {
-            let scale = panel.scale_factor().unwrap_or(1.0);
             tauri::PhysicalSize::new((380.0 * scale) as u32, (480.0 * scale) as u32)
         });
+        let mut target = (pos.x.round() as i32, pos.y.round() as i32);
         if let Ok(Some(monitor)) = app.monitor_from_point(pos.x, pos.y) {
-            let mon_pos = monitor.position();
-            let mon_size = monitor.size();
-            let max_x =
-                f64::from(mon_pos.x) + f64::from(mon_size.width) - f64::from(panel_size.width);
-            let max_y =
-                f64::from(mon_pos.y) + f64::from(mon_size.height) - f64::from(panel_size.height);
-            x = x.min(max_x).max(f64::from(mon_pos.x));
-            y = y.min(max_y).max(f64::from(mon_pos.y));
+            target = place_panel(
+                target,
+                (
+                    i32::try_from(panel_size.width).unwrap_or(i32::MAX),
+                    i32::try_from(panel_size.height).unwrap_or(i32::MAX),
+                ),
+                (PANEL_EDGE_GAP * scale).round() as i32,
+                monitor_work_rect(&monitor),
+            );
         }
-        let _ = panel.set_position(tauri::PhysicalPosition::new(x, y));
+        let _ = panel.set_position(tauri::PhysicalPosition::new(target.0, target.1));
     } else {
         // The panel waits off screen while hidden, so a position **must** be
         // set on every open — without this fallback a failed cursor read
@@ -587,18 +732,26 @@ pub fn show_preview_impl(app: &tauri::AppHandle, anchor_y: Option<f64>, height: 
                 gap,
                 desired_y: y,
             },
-            MonitorRect {
-                left: monitor.position().x,
-                top: monitor.position().y,
-                right: monitor.position().x + monitor.size().width as i32,
-                bottom: monitor.position().y + monitor.size().height as i32,
-            },
+            monitor_work_rect(&monitor),
         );
         (x, y) = placed;
     }
     let _ = preview.set_position(tauri::PhysicalPosition::new(x, y));
     if !preview.is_visible().unwrap_or(false) {
+        #[cfg(target_os = "windows")]
+        {
+            // Reassert WS_EX_NOACTIVATE before showing the HWND, then mark the
+            // short blur transition so the panel event handler can distinguish
+            // it from a real click away.
+            let _ = preview.set_focusable(false);
+            LAST_PREVIEW_SHOW_MS.store(
+                lanecho_core::clipboard::now_ms(),
+                std::sync::atomic::Ordering::Relaxed,
+            );
+        }
         let _ = preview.show();
+        #[cfg(target_os = "windows")]
+        let _ = panel.set_focus();
     }
 }
 
@@ -617,11 +770,30 @@ struct PreviewLayout {
 }
 
 /// Visible rectangle of the monitor (physical pixels)
+#[derive(Clone, Copy)]
 struct MonitorRect {
     left: i32,
     top: i32,
     right: i32,
     bottom: i32,
+}
+
+/// Converts Tauri's monitor work area into the rectangle used by the pure
+/// placement helpers
+fn monitor_work_rect(monitor: &tauri::Monitor) -> MonitorRect {
+    let area = monitor.work_area();
+    MonitorRect {
+        left: area.position.x,
+        top: area.position.y,
+        right: area
+            .position
+            .x
+            .saturating_add(i32::try_from(area.size.width).unwrap_or(i32::MAX)),
+        bottom: area
+            .position
+            .y
+            .saturating_add(i32::try_from(area.size.height).unwrap_or(i32::MAX)),
+    }
 }
 
 /// Computes where the preview card lands (pure geometry, so unit tests can
@@ -989,7 +1161,7 @@ fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
 }
 
 #[cfg(test)]
-mod preview_layout_tests {
+mod window_layout_tests {
     use super::*;
 
     /// A 1440×900 logical screen (origin 0,0)
@@ -1070,6 +1242,66 @@ mod preview_layout_tests {
     fn clamps_bottom_edge() {
         let (_, y) = place_preview(layout(0, 880), screen());
         assert_eq!(y, 600, "900 - 300");
+    }
+
+    /// A bottom taskbar reduces the work area to y=1040. The panel must stop
+    /// above it with the configured edge gap instead of covering the tray.
+    #[test]
+    fn panel_stays_above_windows_taskbar() {
+        let work_area = MonitorRect {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 1040,
+        };
+        let (x, y) = place_panel((1910, 1070), (380, 480), 8, work_area);
+        assert_eq!(x, 1532);
+        assert_eq!(y, 552);
+        assert_eq!(y + 480 + 8, work_area.bottom);
+    }
+
+    /// Work areas on secondary displays may have negative origins; clamping
+    /// must stay relative to that monitor rather than the primary display.
+    #[test]
+    fn panel_respects_negative_work_area_origin() {
+        let work_area = MonitorRect {
+            left: -1920,
+            top: 40,
+            right: 0,
+            bottom: 1080,
+        };
+        let (x, y) = place_panel((-2000, 0), (380, 480), 8, work_area);
+        assert_eq!(x, -1912);
+        assert_eq!(y, 48);
+    }
+
+    /// `set_size` consumes an inner size. The target must preserve the current
+    /// inner width even when the decorated outer frame is wider.
+    #[test]
+    fn settings_resize_never_adds_window_border_to_width() {
+        let target = settings_target_inner_size(
+            tauri::PhysicalSize::new(500, 400),
+            tauri::PhysicalSize::new(516, 439),
+            1.0,
+            520.0,
+            Some(1080),
+        );
+        assert_eq!(target.width, 500);
+        assert_eq!(target.height, 520);
+    }
+
+    /// The maximum applies to the outer frame, then subtracts the decoration
+    /// height before passing the result to `set_size`.
+    #[test]
+    fn settings_resize_clamps_inner_height_to_work_area() {
+        let target = settings_target_inner_size(
+            tauri::PhysicalSize::new(500, 400),
+            tauri::PhysicalSize::new(516, 439),
+            1.0,
+            2000.0,
+            Some(1000),
+        );
+        assert_eq!(target.height, 841, "880 outer - 39 decoration");
     }
 }
 

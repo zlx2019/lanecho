@@ -44,3 +44,6 @@ fast_image_resize = { workspace = true }
 uuid = { workspace = true }
 tauri-plugin-opener = "2.5.4"
 tauri-plugin-dialog = "2.7.2"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.61.3", features = ["Win32_Graphics_Gdi"] }
