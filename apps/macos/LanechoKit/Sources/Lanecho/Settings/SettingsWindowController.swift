@@ -5,7 +5,7 @@
 //   the toolbar icons sit in the window chrome and the window title follows the
 //   selected tab
 // - **The window size is fixed once, when the window opens**: the tallest of
-//   the five pages wins (page content is non-scrolling cards with a real
+//   the six pages wins (page content is non-scrolling cards with a real
 //   intrinsic height) and switching tabs never resizes it — a jump on every
 //   switch looks terrible. It only ever **grows, never shrinks**, and only when
 //   dynamic content (the hotkey conflict list) overflows
@@ -92,6 +92,7 @@ final class SettingsWindowController: NSObject {
             (texts.tabGeneral, "gearshape", AnyView(GeneralTab(model: model))),
             (texts.tabDevices, "wifi", AnyView(DevicesTab(model: model))),
             (texts.tabSync, "arrow.triangle.2.circlepath", AnyView(SyncTab(model: model))),
+            (texts.tabIgnore, "nosign", AnyView(IgnoreTab(model: model))),
             (texts.tabStorage, "internaldrive", AnyView(StorageTab(model: model))),
             (texts.tabHotkeys, "keyboard", AnyView(HotkeysTab(model: model))),
         ]

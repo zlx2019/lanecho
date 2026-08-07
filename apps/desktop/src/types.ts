@@ -41,6 +41,9 @@ export interface Settings {
   previewDelayMs: number;
   /** Paste automatically after an entry is chosen (macOS / Windows) */
   autoPaste: boolean;
+  /** Ignore rules (enforced by the native client for now; typed opaque here
+   *  so saves carry it through untouched — do not edit it from this UI yet) */
+  ignore?: unknown;
 }
 
 /** Whether auto-paste can work here: `supported` is the platform, `permitted`

@@ -112,14 +112,21 @@ public final class PasteboardWatcher: Sendable {
                             content: content, hash: content.hash(), timestampMs: nowMs()))
                     continue
                 }
-                guard let (content, hash) = await runBlocking({ Pasteboard.readContentHashed() })
-                else { continue }
+                // The type snapshot is taken in the same blocking hop as the
+                // read: the ignore rules must judge what was on the
+                // pasteboard at read time
+                let read = await runBlocking {
+                    (Pasteboard.readContentHashed(), Pasteboard.currentTypes())
+                }
+                guard let (content, hash) = read.0 else { continue }
                 // Stamp moved but the content did not (e.g. only the format
                 // representation changed): dedup
                 if lastHash == hash { continue }
                 lastHash = hash
                 continuation.yield(
-                    ClipboardEvent(content: content, hash: hash, timestampMs: nowMs()))
+                    ClipboardEvent(
+                        content: content, hash: hash, timestampMs: nowMs(),
+                        pasteboardTypes: read.1))
             }
             continuation.finish()
         }

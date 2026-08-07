@@ -43,6 +43,21 @@ struct Texts: Sendable {
     let tabSync: String
     let tabStorage: String
     let tabHotkeys: String
+    let tabIgnore: String
+    let ignorePaneApps: String
+    let ignorePaneTypes: String
+    let ignorePaneRegex: String
+    let ignorePaneFiles: String
+    let ignoreAppsNote: String
+    let ignoreTypesNote: String
+    let ignoreRegexNote: String
+    let ignoreFilesNote: String
+    let ignoreSuppressSync: String
+    let ignoreSuppressRecord: String
+    let ignoreAddApp: String
+    let ignoreReset: String
+    let ignoreAdd: String
+    let ignoreEmpty: String
     let deviceName: String
     let save: String
     let fingerprintLabel: String
@@ -293,6 +308,21 @@ extension Texts {
         tabSync: "同步",
         tabStorage: "存储",
         tabHotkeys: "快捷键",
+        tabIgnore: "忽略",
+        ignorePaneApps: "应用",
+        ignorePaneTypes: "剪贴板类型",
+        ignorePaneRegex: "正则表达式",
+        ignorePaneFiles: "文件",
+        ignoreAppsNote: "忽略来自这些应用的文本内容。",
+        ignoreTypesNote: "携带这些剪贴板类型标记的内容将被忽略; 预置列表覆盖常见密码管理器与临时内容标记。",
+        ignoreRegexNote: "文本与任一正则完全匹配时忽略; 纯文本表示完全相等, 包含语义写 .*关键词.*。",
+        ignoreFilesNote: "每行一条规则, # 开头为注释; 含 / 按完整路径匹配, 否则按文件名; 命中任一文件即忽略整批。",
+        ignoreSuppressSync: "忽略同步",
+        ignoreSuppressRecord: "忽略记录",
+        ignoreAddApp: "添加应用…",
+        ignoreReset: "重置",
+        ignoreAdd: "添加",
+        ignoreEmpty: "暂无条目",
         deviceName: "设备名称",
         save: "保存",
         fingerprintLabel: "设备指纹",
@@ -420,6 +450,24 @@ extension Texts {
         tabSync: "Sync",
         tabStorage: "Storage",
         tabHotkeys: "Hotkeys",
+        tabIgnore: "Ignore",
+        ignorePaneApps: "Apps",
+        ignorePaneTypes: "Pasteboard Types",
+        ignorePaneRegex: "Regex",
+        ignorePaneFiles: "Files",
+        ignoreAppsNote: "Ignore text copied from these applications.",
+        ignoreTypesNote:
+            "Content carrying any of these pasteboard types is ignored; the preset list covers common password managers and transient markers.",
+        ignoreRegexNote:
+            "Ignored when the whole text matches any pattern; a plain string means an exact match, use .*keyword.* for contains.",
+        ignoreFilesNote:
+            "One rule per line, # starts a comment; a pattern with / matches the full path, otherwise the file name; one hit ignores the whole batch.",
+        ignoreSuppressSync: "Don't sync",
+        ignoreSuppressRecord: "Don't record",
+        ignoreAddApp: "Add Application…",
+        ignoreReset: "Reset",
+        ignoreAdd: "Add",
+        ignoreEmpty: "No entries",
         deviceName: "Device Name",
         save: "Save",
         fingerprintLabel: "Fingerprint",

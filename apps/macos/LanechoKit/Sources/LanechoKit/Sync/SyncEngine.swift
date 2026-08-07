@@ -116,8 +116,10 @@ public enum EngineEvent: Sendable {
     /// A pairing was removed (locally, or on notice from the peer)
     case unpaired(fingerprint: String)
     /// The local user copied something new (the history pipeline and the UI
-    /// hints hang off this event)
-    case localCopied(content: ClipboardContent, hash: String, timestampMs: UInt64)
+    /// hints hang off this event); suppressRecord is the ignore-rule verdict
+    /// riding through from the shell (see ClipboardEvent)
+    case localCopied(
+        content: ClipboardContent, hash: String, timestampMs: UInt64, suppressRecord: Bool)
     /// A remote sync was accepted; the shell layer should write it to the
     /// system clipboard (contract in the file header)
     ///
@@ -425,9 +427,12 @@ public actor SyncEngine {
         // just copied here
         lastLocalCopyMs = max(lastLocalCopyMs, event.timestampMs)
         // Each of the three content kinds has its own sync pipeline (1.1); the
-        // history pipeline consumes localCopied for all of them
+        // history pipeline consumes localCopied for all of them.
+        // suppressBroadcast is the ignore-rule verdict: the baseline above
+        // still advanced and localCopied still fires, only the outbound leg
+        // is cut
         var outbound = Outbound.none
-        if sendEnabled {
+        if sendEnabled && !event.suppressBroadcast {
             switch event.content {
             case .text(let text) where types.text && text.utf8.count <= Config.maxSyncTextBytes:
                 outbound = .text(text)
@@ -440,7 +445,9 @@ public actor SyncEngine {
             }
         }
         events.yield(
-            .localCopied(content: event.content, hash: event.hash, timestampMs: event.timestampMs))
+            .localCopied(
+                content: event.content, hash: event.hash, timestampMs: event.timestampMs,
+                suppressRecord: event.suppressRecord))
         switch outbound {
         case .none:
             break

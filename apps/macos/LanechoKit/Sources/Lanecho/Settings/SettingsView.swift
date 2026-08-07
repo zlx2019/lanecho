@@ -1,5 +1,5 @@
-// Settings page contents (five tabs; the tab shell lives in
-// SettingsWindowController, a classic preferences window).
+// Settings page contents (the tab shell lives in SettingsWindowController, a
+// classic preferences window; the Ignore tab sits in its own IgnoreTab.swift).
 //
 // Laid out with SettingsKit's non-scrolling grouped cards: the window height
 // follows the content, page width is 460 (at 560 the toggle rows are far too
@@ -11,13 +11,14 @@ import SwiftUI
 /// Page width
 let settingsPageWidth: CGFloat = 460
 
-/// Page frame (uniform padding and a fixed width)
+/// Page frame (uniform padding and a fixed width; internal — IgnoreTab.swift
+/// builds on it too)
 ///
 /// The trailing `Spacer(minLength: 0)` pushes short content to the top and
 /// leaves the slack at the bottom, and **does not raise fittingSize** — that is
 /// what lets the window size be fixed once from the tallest page so switching
 /// tabs never makes it jump
-private struct SettingsPage<Content: View>: View {
+struct SettingsPage<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {

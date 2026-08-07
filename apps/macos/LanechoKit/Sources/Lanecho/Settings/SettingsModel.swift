@@ -9,6 +9,7 @@
 import AppKit
 import LanechoKit
 import Observation
+import UniformTypeIdentifiers
 
 /// Settings window view model
 @MainActor
@@ -256,6 +257,68 @@ final class SettingsModel {
         }
         autostart = on
         patch { $0.autostart = on }
+    }
+
+    // MARK: - Ignore rules
+
+    /// Add an application through the system open panel (reads the bundle
+    /// identifier; an app without one, or one already listed, is a no-op)
+    func addIgnoredApp() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.applicationBundle]
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        guard panel.runModal() == .OK, let url = panel.url,
+            let bundle = Bundle(url: url), let id = bundle.bundleIdentifier
+        else { return }
+        guard !settings.ignore.apps.contains(where: { $0.id == id }) else { return }
+        let name =
+            (bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
+            ?? (bundle.object(forInfoDictionaryKey: "CFBundleName") as? String)
+            ?? url.deletingPathExtension().lastPathComponent
+        patch { $0.ignore.apps.append(IgnoredApp(id: id, name: name)) }
+    }
+
+    /// Remove one ignored application
+    func removeIgnoredApp(id: String) {
+        patch { $0.ignore.apps.removeAll { $0.id == id } }
+    }
+
+    /// Add a pasteboard type (trimmed; empty or duplicate is a no-op)
+    func addIgnoredType(_ raw: String) {
+        let type = raw.trimmingCharacters(in: .whitespaces)
+        guard !type.isEmpty, !settings.ignore.types.contains(type) else { return }
+        patch { $0.ignore.types.append(type) }
+    }
+
+    /// Remove one pasteboard type
+    func removeIgnoredType(_ type: String) {
+        patch { $0.ignore.types.removeAll { $0 == type } }
+    }
+
+    /// Restore the preset pasteboard type list
+    func resetIgnoredTypes() {
+        patch { $0.ignore.types = IgnoreSettings.defaultTypes }
+    }
+
+    /// Add a regex pattern (kept verbatim; empty or duplicate is a no-op —
+    /// an uncompilable pattern is legal, it degrades to a literal match)
+    func addIgnoredRegex(_ raw: String) {
+        let pattern = raw.trimmingCharacters(in: .whitespaces)
+        guard !pattern.isEmpty, !settings.ignore.regexes.contains(pattern) else { return }
+        patch { $0.ignore.regexes.append(pattern) }
+    }
+
+    /// Remove one regex pattern
+    func removeIgnoredRegex(_ pattern: String) {
+        patch { $0.ignore.regexes.removeAll { $0 == pattern } }
+    }
+
+    /// Commit the file pattern text (on blur, like the port field)
+    func saveFilePatterns(_ text: String) {
+        guard text != settings.ignore.filePatterns else { return }
+        patch { $0.ignore.filePatterns = text }
     }
 
     // MARK: - Device actions

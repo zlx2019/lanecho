@@ -39,6 +39,11 @@ enum Pasteboard {
         return types.contains(.tiff) || types.contains(.png)
     }
 
+    /// Raw type identifiers of the current content (the ignore-rule snapshot)
+    static func currentTypes() -> [String] {
+        (NSPasteboard.general.types ?? []).map(\.rawValue)
+    }
+
     /// Read and classify the current content: file lists first as the most
     /// specific, then image, then text
     static func readContent() -> ClipboardContent? {
@@ -171,6 +176,17 @@ public func frontmostAppName() async -> String? {
             app.processIdentifier != ProcessInfo.processInfo.processIdentifier
         else { return nil }
         return app.localizedName
+    }
+}
+
+/// Frontmost application bundle identifier, for the ignore-by-application
+/// rule (nil for our own process, same exemption as the name lookup)
+public func frontmostAppBundleId() async -> String? {
+    await runBlocking {
+        guard let app = NSWorkspace.shared.frontmostApplication,
+            app.processIdentifier != ProcessInfo.processInfo.processIdentifier
+        else { return nil }
+        return app.bundleIdentifier
     }
 }
 

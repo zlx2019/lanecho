@@ -111,6 +111,8 @@ public actor AppCore {
     private let resetBaseline: AtomicFlag
     /// Current settings
     private var settings: Settings
+    /// Compiled ignore rules (rebuilt whenever the ignore settings change)
+    private var ignoreRules: IgnoreRules
     /// Incognito (recording paused; session state, never persisted, and it
     /// covers history only, never sync)
     private var incognito = false
@@ -152,6 +154,7 @@ public actor AppCore {
         self.readImages = readImages
         self.resetBaseline = resetBaseline
         self.settings = settings
+        self.ignoreRules = IgnoreRules(settings.ignore)
         self.historyJobs = historyJobs
         self.events = events
     }
@@ -236,11 +239,12 @@ public actor AppCore {
     ) {
         tasks.append(engine.attachDiscovery(discoveryStream))
         if let watchStream {
-            let engine = engine
+            // Through ingest (ignore-rule evaluation) rather than straight
+            // into the engine; weak, so this task never pins the actor
             tasks.append(
-                Task {
+                Task { [weak self] in
                     for await event in watchStream {
-                        await engine.clipboardChanged(event)
+                        await self?.ingest(event)
                     }
                 })
         }
@@ -258,6 +262,31 @@ public actor AppCore {
         }
     }
 
+    /// Watcher → engine, with the ignore rules evaluated in between
+    ///
+    /// imageUnread passes straight through (contentless, nothing to judge).
+    /// A restore write (hash matches the registration) exempts the
+    /// application rule only — the content does not come from whatever
+    /// happens to be frontmost — while regex/type/file rules still apply,
+    /// restoring being equivalent to copying. The registration itself is NOT
+    /// consumed here: the pump still needs it to preserve the original
+    /// source application.
+    private func ingest(_ event: ClipboardEvent) async {
+        var event = event
+        if case .imageUnread = event.content {
+            await engine.clipboardChanged(event)
+            return
+        }
+        let exemptApp = restoreHash == event.hash || !ignoreRules.wantsSourceApp
+        let bundleId = exemptApp ? nil : await frontmostAppBundleId()
+        let verdict = ignoreRules.evaluate(
+            content: event.content, pasteboardTypes: event.pasteboardTypes,
+            sourceBundleId: bundleId)
+        event.suppressBroadcast = verdict.suppressSync
+        event.suppressRecord = verdict.suppressRecord
+        await engine.clipboardChanged(event)
+    }
+
     /// Engine event pump
     private func pump(_ event: EngineEvent) async {
         switch event {
@@ -271,15 +300,20 @@ public actor AppCore {
             events.yield(.paired(info))
         case .unpaired(let fingerprint):
             events.yield(.unpaired(fingerprint))
-        case .localCopied(let content, let hash, let timestampMs):
+        case .localCopied(let content, let hash, let timestampMs, let suppressRecord):
             guard !incognito else { return }
             // A skip-the-read event only advances the LWW baseline; there is
             // no content to record
             if case .imageUnread = content { return }
             // Restore write: on a hash match do not capture the source
-            // application (a registration that does not match is voided too)
+            // application (a registration that does not match is voided too).
+            // The registration is consumed before the ignore check — an
+            // ignored restore must not leave it behind to mislabel the next
+            // genuine copy
             let restored = restoreHash == hash
             restoreHash = nil
+            // Ignore rules: the record leg is cut, sync already went its way
+            if suppressRecord { return }
             let sourceApp = restored ? nil : await frontmostAppName()
             // Icon captured alongside: at most once per application per
             // session, and when it is already on disk even the extraction is
@@ -408,6 +442,9 @@ extension AppCore {
             || old.syncImages != new.syncImages
         {
             readImages.set(new.historyRecordImages || new.syncImages)
+        }
+        if old.ignore != new.ignore {
+            ignoreRules = IgnoreRules(new.ignore)
         }
         // Recording or the sync pipe resumed (either gate went from off to
         // on): reset the watcher's dedup baseline, so content copied while a
