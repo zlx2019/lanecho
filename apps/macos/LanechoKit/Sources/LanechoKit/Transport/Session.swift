@@ -164,6 +164,11 @@ private func handshakeOut(
 ) async throws -> PeerInfo {
     try await outbound.write(.frame(.hello(version: Config.protocolVersion, info: localInfo)))
     let reply = try await reader.nextFrame(within: Config.replyTimeout, step: "hello_ack")
+    // The peer may refuse during the handshake itself; surface its reason
+    // rather than reporting a meaningless unexpected frame
+    if case .syncRejected(let reasonCode) = reply {
+        throw TransportError.rejected(reasonCode)
+    }
     guard case .helloAck(let version, let info) = reply else {
         throw ProtocolError.unexpectedMessage(expected: "hello_ack", got: reply.kind)
     }
@@ -553,13 +558,26 @@ func serveConnection(
         guard case .hello(let version, let remote) = first else {
             return
         }
-        guard isVersionCompatible(version) else { return }
+        // A refusal at the Hello gate is **stated, not implied**. Closing in
+        // silence leaves the dialer holding a bare "early eof" with nothing to
+        // go on — one such case (a resumed TLS session carrying no client
+        // certificate) cost a long investigation. The frame is best effort:
+        // the connection is being dropped either way.
+        guard isVersionCompatible(version) else {
+            try? await outbound.write(
+                .frame(.syncRejected(reasonCode: ReasonCode.unsupportedVersion)))
+            return
+        }
         // The declared fingerprint must match the TLS certificate
         // (anti-impersonation); a decrypted frame implies the callback has
         // already filled the box
         guard let clientFingerprint = fingerprintBox.get(),
             remote.fingerprint == clientFingerprint
-        else { return }
+        else {
+            try? await outbound.write(
+                .frame(.syncRejected(reasonCode: ReasonCode.identityMismatch)))
+            return
+        }
         try await outbound.write(
             .frame(.helloAck(version: Config.protocolVersion, info: localInfo)))
 

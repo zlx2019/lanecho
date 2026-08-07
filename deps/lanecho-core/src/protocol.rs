@@ -101,6 +101,14 @@ pub mod reason_code {
     /// Integrity check of the blob stream failed (since 1.1, and only in blob
     /// transactions)
     pub const CHECKSUM_MISMATCH: &str = "checksum_mismatch";
+    /// The identity declared in Hello does not match the TLS certificate, or
+    /// no client certificate arrived at all
+    ///
+    /// Sent during the handshake, before HelloAck. Older peers simply see an
+    /// unexpected frame instead of the connection dropping without a word.
+    pub const IDENTITY_MISMATCH: &str = "identity_mismatch";
+    /// The receiver does not support the offered protocol version
+    pub const UNSUPPORTED_VERSION: &str = "unsupported_version";
 }
 
 /// Metadata of an image offer (a JSON string carried in clipboard_sync.data;

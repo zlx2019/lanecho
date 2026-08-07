@@ -139,6 +139,8 @@ struct Texts: Sendable {
     let errSyncDisabled: String
     let errUnsupportedType: String
     let errChecksumMismatch: String
+    let errIdentityMismatch: String
+    let errUnsupportedVersion: String
 }
 
 /// Content of one in-panel error message
@@ -199,6 +201,8 @@ extension Texts {
         case ReasonCode.disabled: errSyncDisabled
         case ReasonCode.unsupportedType: errUnsupportedType
         case ReasonCode.checksumMismatch: errChecksumMismatch
+        case ReasonCode.identityMismatch: errIdentityMismatch
+        case ReasonCode.unsupportedVersion: errUnsupportedVersion
         default: "\(errUnknown) (\(code))"
         }
     }
@@ -376,7 +380,9 @@ extension Texts {
         errTooLarge: "内容超过对方的大小限制",
         errSyncDisabled: "对方已暂停同步",
         errUnsupportedType: "对方不支持该内容类型",
-        errChecksumMismatch: "传输校验失败, 内容已丢弃"
+        errChecksumMismatch: "传输校验失败, 内容已丢弃",
+        errIdentityMismatch: "对方无法确认本机身份(证书与声明不一致)",
+        errUnsupportedVersion: "对方不支持当前协议版本"
     )
 
     /// English table
@@ -500,6 +506,8 @@ extension Texts {
         errTooLarge: "Content exceeds the peer's size limit",
         errSyncDisabled: "Peer has paused syncing",
         errUnsupportedType: "Peer does not support this content type",
-        errChecksumMismatch: "Transfer checksum mismatch; content discarded"
+        errChecksumMismatch: "Transfer checksum mismatch; content discarded",
+        errIdentityMismatch: "The peer could not confirm this device's identity",
+        errUnsupportedVersion: "The peer does not support this protocol version"
     )
 }

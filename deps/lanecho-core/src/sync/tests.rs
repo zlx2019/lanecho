@@ -955,3 +955,43 @@ async fn stale_blob_offer_acked_without_transfer() {
     a.engine.shutdown().await;
     b.engine.shutdown().await;
 }
+
+/// **Regression guard**: a refusal during the handshake must reach the caller
+/// as that refusal, not as a mystery.
+///
+/// The accept side can turn a connection away at the Hello gate — the
+/// identity declared in Hello not matching the TLS certificate, an
+/// incompatible version. It used to just close, leaving the dialer with a
+/// bare "early eof" and no idea why; diagnosing one such case (a resumed TLS
+/// session that carried no client certificate, so the native client's
+/// verification callback never ran) took a long time for exactly this reason.
+#[tokio::test]
+async fn handshake_surfaces_a_refusal_from_the_peer() {
+    let dir = TempDir::new();
+    let identity = crate::identity::DeviceIdentity::load_or_create(&dir.0).unwrap();
+    let (mut client, mut server) = tokio::io::duplex(4096);
+
+    // Stand-in accept side: read the Hello, refuse instead of answering
+    let peer = tokio::spawn(async move {
+        let _ = crate::protocol::read_frame(&mut server).await;
+        let _ = crate::protocol::write_frame(
+            &mut server,
+            &ControlMessage::SyncRejected {
+                reason_code: crate::protocol::reason_code::IDENTITY_MISMATCH.to_string(),
+            },
+        )
+        .await;
+    });
+
+    let err = net::handshake_out(&mut client, &identity, "whatever")
+        .await
+        .expect_err("a refusal must not be reported as success");
+    peer.await.unwrap();
+
+    match err {
+        SyncError::Rejected(code) => {
+            assert_eq!(code, crate::protocol::reason_code::IDENTITY_MISMATCH)
+        }
+        other => panic!("expected the peer's reason, got: {other}"),
+    }
+}

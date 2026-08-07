@@ -33,6 +33,14 @@ public enum ReasonCode {
     /// Blob stream integrity check failed (since 1.1; only on blob
     /// transactions)
     public static let checksumMismatch = "checksum_mismatch"
+    /// The identity declared in Hello does not match the TLS certificate, or
+    /// no client certificate arrived at all
+    ///
+    /// Sent during the handshake, before HelloAck, so the dialer learns why
+    /// instead of just losing the connection.
+    public static let identityMismatch = "identity_mismatch"
+    /// The offered protocol version is not supported
+    public static let unsupportedVersion = "unsupported_version"
 }
 
 /// Image offer metadata: a JSON string carried in clipboard_sync.data (1.1)
