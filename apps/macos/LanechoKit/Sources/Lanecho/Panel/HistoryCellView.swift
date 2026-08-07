@@ -45,6 +45,10 @@ final class HistoryCellView: NSTableCellView {
         kindIcon.symbolConfiguration = .init(pointSize: 11, weight: .regular)
         preview.font = .systemFont(ofSize: 13)
         preview.lineBreakMode = .byTruncatingTail
+        // Single-line layout even when the string carries a line break:
+        // previews persisted before the CRLF fix (and file names, which may
+        // legally contain newlines) would otherwise overflow the row
+        preview.usesSingleLineMode = true
         preview.setContentHuggingPriority(.defaultLow, for: .horizontal)
         preview.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         countBadge.font = .systemFont(ofSize: 10)
