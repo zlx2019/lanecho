@@ -5,14 +5,14 @@ on:
     branches: [main]
     paths:
       - "apps/macos/**"
-      - ".github/workflows/macos-native.yml"
+      - ".github/workflows/macos-ci.yml"
       - "deps/lanecho-core/**"
       - "Cargo.toml"
       - "Cargo.lock"
   pull_request:
     paths:
       - "apps/macos/**"
-      - ".github/workflows/macos-native.yml"
+      - ".github/workflows/macos-ci.yml"
       - "deps/lanecho-core/**"
       - "Cargo.toml"
       - "Cargo.lock"
