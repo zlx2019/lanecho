@@ -109,7 +109,7 @@ pub struct IgnoreSettings {
     pub apps: Vec<IgnoredApp>,
     /// Pasteboard types that mark a change as ignored
     pub types: Vec<String>,
-    /// Regular expressions matched against the whole text
+    /// Regular expressions searched against the text as written
     pub regexes: Vec<String>,
     /// File ignore rules, raw editor text (one simplified .gitignore pattern
     /// per line)

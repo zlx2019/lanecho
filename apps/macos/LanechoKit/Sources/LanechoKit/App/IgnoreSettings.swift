@@ -38,8 +38,9 @@ public struct IgnoreSettings: Codable, Sendable, Equatable {
     public var apps: [IgnoredApp]
     /// Pasteboard types that mark a change as ignored
     public var types: [String]
-    /// Regular expressions matched against the whole text; a pattern that
-    /// fails to compile degrades to a literal full-string comparison
+    /// Regular expressions searched against the text as written (anchor with
+    /// ^ $ for an exact match); a pattern that fails to compile degrades to a
+    /// literal substring check
     public var regexes: [String]
     /// File ignore rules, one pattern per line in a simplified .gitignore
     /// syntax (see IgnoreRules); stored as the raw editor text

@@ -58,32 +58,37 @@ private func rules(_ patch: (inout IgnoreSettings) -> Void) -> IgnoreRules {
     #expect(miss == .none)
 }
 
-/// Regex rule: whole-string semantics — a partial hit is not a match, a plain
-/// string is an exact comparison, and an uncompilable pattern degrades to a
-/// literal instead of erroring
-@Test func regexRuleMatchesWholeText() {
+/// Regex rule: patterns run exactly as written, standard search semantics —
+/// a match anywhere in the text counts, user-written anchors still bind, and
+/// an uncompilable pattern degrades to a literal substring check
+@Test func regexRuleMatchesBySearch() {
     let rules = rules {
-        $0.regexes = ["^[a-z0-9]{8}$", "exact text", "([invalid"]
+        $0.regexes = ["[0-9]{6}", "^secret$", "([invalid"]
         $0.regexRecord = true
     }
     #expect(
-        rules.evaluate(content: .text("abcd1234"), pasteboardTypes: [], sourceBundleId: nil)
+        rules.evaluate(content: .text("834721"), pasteboardTypes: [], sourceBundleId: nil)
             == IgnoreVerdict(suppressSync: true, suppressRecord: true))
     #expect(
         rules.evaluate(
-            content: .text("prefix abcd1234"), pasteboardTypes: [], sourceBundleId: nil)
-            == .none,
-        "A partial match must not count: the whole text has to match")
+            content: .text("验证码 834721"), pasteboardTypes: [], sourceBundleId: nil)
+            .suppressSync,
+        "Search semantics: a match anywhere in the text counts")
     #expect(
-        rules.evaluate(content: .text("exact text"), pasteboardTypes: [], sourceBundleId: nil)
+        rules.evaluate(content: .text("secret"), pasteboardTypes: [], sourceBundleId: nil)
             .suppressSync)
     #expect(
-        rules.evaluate(content: .text("exact text!"), pasteboardTypes: [], sourceBundleId: nil)
-            == .none)
+        rules.evaluate(content: .text("my secret!"), pasteboardTypes: [], sourceBundleId: nil)
+            == .none,
+        "User-written anchors bind as written")
     #expect(
-        rules.evaluate(content: .text("([invalid"), pasteboardTypes: [], sourceBundleId: nil)
+        rules.evaluate(
+            content: .text("see ([invalid here"), pasteboardTypes: [], sourceBundleId: nil)
             .suppressSync,
-        "An uncompilable pattern degrades to a literal full-string match")
+        "An uncompilable pattern degrades to a literal substring check")
+    #expect(
+        rules.evaluate(content: .text("plain"), pasteboardTypes: [], sourceBundleId: nil)
+            == .none)
 }
 
 /// File rule: name globs vs full-path globs, comments and blank lines, any

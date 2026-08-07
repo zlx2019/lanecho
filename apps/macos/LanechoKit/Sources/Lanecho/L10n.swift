@@ -315,7 +315,7 @@ extension Texts {
         ignorePaneFiles: "文件",
         ignoreAppsNote: "忽略来自这些应用的文本内容。",
         ignoreTypesNote: "携带这些剪贴板类型标记的内容将被忽略; 预置列表覆盖常见密码管理器与临时内容标记。",
-        ignoreRegexNote: "文本与任一正则完全匹配时忽略; 纯文本表示完全相等, 包含语义写 .*关键词.*。",
+        ignoreRegexNote: "按输入的正则在文本中搜索, 命中任一条即忽略; 需要精确匹配请用 ^ $ 锚定。",
         ignoreFilesNote: "每行一条规则, # 开头为注释; 含 / 按完整路径匹配, 否则按文件名; 命中任一文件即忽略整批。",
         ignoreSuppressSync: "忽略同步",
         ignoreSuppressRecord: "忽略记录",
@@ -459,7 +459,7 @@ extension Texts {
         ignoreTypesNote:
             "Content carrying any of these pasteboard types is ignored; the preset list covers common password managers and transient markers.",
         ignoreRegexNote:
-            "Ignored when the whole text matches any pattern; a plain string means an exact match, use .*keyword.* for contains.",
+            "Patterns search the text as written; any hit ignores it. Anchor with ^ $ for an exact match.",
         ignoreFilesNote:
             "One rule per line, # starts a comment; a pattern with / matches the full path, otherwise the file name; one hit ignores the whole batch.",
         ignoreSuppressSync: "Don't sync",

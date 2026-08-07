@@ -5,9 +5,11 @@
 // Rule semantics (docs/PLAN):
 // - Applications and regexes act on text only; file patterns on file lists
 //   only; pasteboard types on every kind
-// - Regexes must match the WHOLE text (a plain string therefore means an
-//   exact match, per the settings page's contract); a pattern that fails to
-//   compile degrades to a literal full-string comparison instead of erroring
+// - Regexes run exactly as written, standard search semantics: a match
+//   anywhere in the text counts, anchor with ^ $ for an exact match
+//   (2026-08-08 Zero's call, replacing the earlier whole-string wrapping);
+//   a pattern that fails to compile degrades to a literal substring check
+//   instead of erroring
 // - File patterns: one per line, `#` comments and blank lines skipped, no `!`
 //   negation. A pattern containing `/` matches against the full path,
 //   otherwise against the file name; fnmatch glob syntax (* ? [..]), case
@@ -59,9 +61,9 @@ public struct IgnoreRules: @unchecked Sendable {
     private let appIds: Set<String>
     /// Ignored pasteboard types
     private let types: Set<String>
-    /// Compiled regexes, each wrapped \A(?:...)\z so matching is whole-string
+    /// Compiled regexes, exactly as the user wrote them (search semantics)
     private let regexes: [NSRegularExpression]
-    /// Patterns that failed to compile, kept as literal full-string matches
+    /// Patterns that failed to compile, kept as literal substring checks
     private let literals: [String]
     /// Parsed file patterns
     private let filePatterns: [FilePattern]
@@ -75,9 +77,7 @@ public struct IgnoreRules: @unchecked Sendable {
         var compiled: [NSRegularExpression] = []
         var literals: [String] = []
         for pattern in settings.regexes where !pattern.isEmpty {
-            // Anchor the whole pattern; the wrapper group keeps alternations
-            // like a|b from escaping the anchors
-            if let regex = try? NSRegularExpression(pattern: "\\A(?:\(pattern))\\z") {
+            if let regex = try? NSRegularExpression(pattern: pattern) {
                 compiled.append(regex)
             } else {
                 literals.append(pattern)
@@ -130,9 +130,9 @@ public struct IgnoreRules: @unchecked Sendable {
         !appIds.isEmpty && (config.appsSync || config.appsRecord)
     }
 
-    /// Whole-text regex or literal match
+    /// Regex search or literal substring match
     private func matchesText(_ text: String) -> Bool {
-        if literals.contains(text) {
+        if literals.contains(where: text.contains) {
             return true
         }
         guard !regexes.isEmpty else { return false }
