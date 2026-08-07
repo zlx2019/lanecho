@@ -1,0 +1,70 @@
+name: Windows Installer
+
+on:
+  workflow_dispatch:
+  # Bootstrap changes to this workflow before it exists on the default branch.
+  pull_request:
+    paths:
+      - ".github/workflows/windows-build.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-installer-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_TARGET_DIR: ${{ github.workspace }}/target
+
+jobs:
+  build:
+    name: Build Windows NSIS installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: apps/desktop/package.json
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Install frontend dependencies
+        working-directory: apps/desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: Build NSIS installer
+        working-directory: apps/desktop
+        run: pnpm tauri build --bundles nsis
+
+      - name: Generate SHA-256 checksums
+        shell: pwsh
+        run: |
+          $bundle = Join-Path $env:CARGO_TARGET_DIR "release/bundle/nsis"
+          $installers = Get-ChildItem -Path $bundle -Filter "*.exe"
+          if ($installers.Count -eq 0) {
+            throw "No NSIS installer was produced in $bundle"
+          }
+          $lines = $installers | ForEach-Object {
+            $hash = (Get-FileHash -Path $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
+          }
+          $lines | Set-Content -Path (Join-Path $bundle "SHA256SUMS.txt")
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: Lanecho-windows-x64-${{ github.run_number }}
+          path: |
+            target/release/bundle/nsis/*.exe
+            target/release/bundle/nsis/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 7
