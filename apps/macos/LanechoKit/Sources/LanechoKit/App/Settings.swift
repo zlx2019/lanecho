@@ -53,13 +53,13 @@ public struct Settings: Codable, Sendable, Equatable {
     /// Preview card delay (milliseconds; doubles as the coalescing window
     /// while sweeping the list)
     public var previewDelayMs: UInt32
-    /// Paste automatically on selection (native macOS client only; needs the
-    /// accessibility permission, off by default)
+    /// Paste automatically on selection (needs the accessibility permission,
+    /// off by default)
     ///
-    /// The Tauri client has no such setting, yet both read the same
-    /// settings.json: serde ignores unknown fields, so the only consequence is
-    /// that the Tauri client drops it whenever it saves settings (just set it
-    /// again after reopening).
+    /// The Tauri client carries the same field under the same key, so the two
+    /// keep each other's value across a save. It did start here, though —
+    /// before the Tauri client grew the setting, saving from that side dropped
+    /// this key entirely.
     public var autoPaste: Bool
 
     /// Defaults (field for field identical to the Rust Default)

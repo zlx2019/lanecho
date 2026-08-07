@@ -456,8 +456,57 @@ pub async fn copy_entry_to_clipboard(app: &tauri::AppHandle, id: &str) -> Result
     // target rather than the real copy origin
     if result.is_ok() {
         *lock(&restore_hash) = Some(content_hash);
+        // Auto-paste (off by default): the content is on the clipboard now, so
+        // dismiss the panel and send the paste key on to whatever had focus.
+        // Both restore paths come through here, which is what gives the slot
+        // hotkeys the same behaviour as picking an entry in the panel
+        let auto_paste = lock(&app.state::<AppState>().settings).auto_paste;
+        if auto_paste {
+            crate::autopaste::paste_after_dismiss(app);
+        }
     }
     result
+}
+
+/// Whether auto-paste can work on this machine
+///
+/// `supported` is about the platform, `permitted` about the operating system
+/// permission — the settings page needs them apart to tell "your system cannot
+/// do this" from "grant the permission".
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoPasteStatus {
+    /// Whether this platform can synthesize the keystroke at all
+    pub supported: bool,
+    /// Whether the operating system currently allows it
+    pub permitted: bool,
+}
+
+impl AutoPasteStatus {
+    /// Reads the current state
+    fn current() -> Self {
+        Self {
+            supported: crate::autopaste::is_supported(),
+            permitted: crate::autopaste::is_permitted(),
+        }
+    }
+}
+
+/// Reports whether auto-paste can work (the settings page asks on open)
+#[tauri::command]
+pub fn auto_paste_status() -> AutoPasteStatus {
+    AutoPasteStatus::current()
+}
+
+/// Asks for the permission auto-paste needs and reports the state after
+///
+/// On macOS this raises the system authorization prompt; a grant only reaches
+/// the process after a restart, so `permitted` staying false here is the
+/// normal outcome rather than a failure.
+#[tauri::command]
+pub fn request_auto_paste_permission() -> AutoPasteStatus {
+    crate::autopaste::request_permission();
+    AutoPasteStatus::current()
 }
 
 /// Display PNG for an image entry, rendered directly by the preview card's

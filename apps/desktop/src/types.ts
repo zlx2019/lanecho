@@ -37,6 +37,15 @@ export interface Settings {
   slotHotkeys: boolean;
   /** Preview card delay (ms; 0 = immediate) */
   previewDelayMs: number;
+  /** Paste automatically after an entry is chosen (macOS / Windows) */
+  autoPaste: boolean;
+}
+
+/** Whether auto-paste can work here: `supported` is the platform, `permitted`
+ *  the operating system permission (macOS Accessibility) */
+export interface AutoPasteStatus {
+  supported: boolean;
+  permitted: boolean;
 }
 
 /** List projection of a history entry (mirrors HistoryEntryMeta in

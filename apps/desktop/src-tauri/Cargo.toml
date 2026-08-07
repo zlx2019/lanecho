@@ -44,3 +44,11 @@ fast_image_resize = { workspace = true }
 uuid = { workspace = true }
 tauri-plugin-opener = "2.5.4"
 tauri-plugin-dialog = "2.7.2"
+
+# Auto-paste synthesizes a keystroke through platform APIs (see autopaste.rs);
+# both are already workspace dependencies of lanecho-core
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-foundation = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true }

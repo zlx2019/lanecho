@@ -18,7 +18,7 @@ import { Button, ToggleRow } from "./components/ModalShell";
 import { useLanecho } from "./hooks/useLanecho";
 import { formatError, useI18n, type Lang } from "./i18n";
 import { useTheme, type ThemePref } from "./theme";
-import type { Settings } from "./types";
+import type { AutoPasteStatus, Settings } from "./types";
 
 /** Whether we are running inside the Tauri runtime */
 const hasTauri = "__TAURI_INTERNALS__" in window;
@@ -70,6 +70,9 @@ export default function App() {
   const [previewDelayInput, setPreviewDelayInput] = useState(150);
   const [saving, setSaving] = useState(false);
   const [slotFailures, setSlotFailures] = useState<number[]>([]);
+  // Auto-paste availability: unsupported hides the whole row, unpermitted
+  // keeps it but adds the permission hint (null until the first read lands)
+  const [autoPaste, setAutoPaste] = useState<AutoPasteStatus | null>(null);
   // Measurement targets for the adaptive height: the shell (whole window) /
   // the main area (flex-1) / the inner content div (natural height)
   const shellRef = useRef<HTMLDivElement>(null);
@@ -115,6 +118,10 @@ export default function App() {
     api
       .getSlotHotkeyFailures()
       .then((v) => alive && setSlotFailures(v))
+      .catch(console.error);
+    api
+      .autoPasteStatus()
+      .then((v) => alive && setAutoPaste(v))
       .catch(console.error);
     const unsubs: (() => void)[] = [];
     const add = (subscription: Promise<() => void>) => {
@@ -579,6 +586,41 @@ export default function App() {
                 <div className="mt-1 text-[11px] text-alert">
                   {t.historySettings.slotConflict(slotFailures.join("/"))}
                 </div>
+              )}
+
+              {/* Auto-paste: hidden outright where the platform cannot
+                  synthesize the keystroke (Linux), rather than shown as a
+                  toggle that silently does nothing */}
+              {autoPaste?.supported && (
+                <>
+                  <ToggleRow
+                    label={t.historySettings.autoPaste}
+                    hint={t.historySettings.autoPasteHint}
+                    checked={settings?.autoPaste ?? false}
+                    onChange={(v) => {
+                      patchSettings({ autoPaste: v });
+                      // Switching it on has to ask for the permission right
+                      // here: macOS drops the synthesized key silently
+                      // without it, so the toggle would just look broken
+                      if (v && !autoPaste.permitted) {
+                        api.requestAutoPastePermission().then(setAutoPaste).catch(console.error);
+                      }
+                    }}
+                  />
+                  {(settings?.autoPaste ?? false) && !autoPaste.permitted && (
+                    <div className="mt-1 flex items-start gap-2 text-[11px] text-alert">
+                      <span>{t.historySettings.autoPastePermission}</span>
+                      <button
+                        onClick={() => {
+                          api.requestAutoPastePermission().then(setAutoPaste).catch(console.error);
+                        }}
+                        className="shrink-0 cursor-pointer text-sonar/80 transition-colors hover:text-sonar"
+                      >
+                        {t.historySettings.autoPasteGrant}
+                      </button>
+                    </div>
+                  )}
+                </>
               )}
 
               {saveRow}
