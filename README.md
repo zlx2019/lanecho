@@ -5,7 +5,7 @@
 <h1 align="center">Lanecho</h1>
 
 <p align="center">
-  Shared clipboard over your LAN — copy on one device, paste on all of them.
+  Shared clipboard history over your LAN — copy on one device, paste on all of them.
 </p>
 
 <p align="center">
@@ -21,33 +21,30 @@
 
 ---
 
-Every device running Lanecho becomes a node on your own network. **No server, no account, no cloud** — nothing to sign up for and nothing to trust but the machines in front of you.
+Every device running Lanecho becomes a node on the local network. Nodes can pair with each other to form smaller groups, and the nodes in each group share their clipboards.
 
 Pair two devices once. From then on, whatever you copy on one is ready to paste on the others, carried device-to-device over a mutually-authenticated TLS 1.3 channel. Everything you copied recently stays in a searchable history, one hotkey away.
 
 ## ✨ Features
 
-- 🔗 **Peer-to-peer across your LAN** — devices talk straight to one another. Nothing to host, no account to create, and not a byte routed through anyone's cloud.
-- ⚡ **Instant clipboard sync** — copy on one machine and it is already on the clipboard of the others, byte for byte. Last-write-wins across the group, with echo suppression, so a copy propagates once and never loops back.
-- 📋 **Clipboard history** — everything you copied recently, one hotkey away (default `Cmd/Ctrl+Shift+V`): search it, pin what you want to keep, drop what you don't. `Alt+1..6` puts any of the top six entries straight back on the clipboard. Hover an entry for a preview card with the full content, plus when and from which app it came.
-- 🖼️ **Text, images and files** — a screenshot or a batch of files travels the same way a line of text does, streamed out of band so a big paste never stalls the channel.
+- 🔗 **LAN P2P** — data travels directly between devices, with no server or cloud required.
+- ⚡ **Instant sync** — copied data is immediately synced to the clipboards of other devices and stored in history. Each copy propagates only once.
+- 📋 **Clipboard history** — open the history panel with a hotkey (default `Cmd/Ctrl+Shift+V`) and quickly select previously copied content. Use `Alt+1..6` to put any of the top six entries straight back on the clipboard. Hover an entry to view its details.
+- 🖼️ **Multiple content types** — record and sync text, screenshots, and files.
 - 📡 **Zero-config discovery** — mDNS with a UDP multicast fallback; nearby devices just show up, on any subnet your LAN routes.
-- 🤝 **Pair once, sync forever** — explicit two-way pairing confirmed by fingerprint short-codes, revocable at any time. Unpaired devices are turned away at the protocol layer, not by a setting.
+- 🤝 **Pair once** — explicitly pair both devices once; the pairing remains valid until either side removes it.
 - ↔️ **Directional sync** — set this client to two-way, send-only, receive-only, or off. The selected direction applies to all of its paired devices.
 - 🔐 **Secure by default** — TLS 1.3 mutual authentication with certificate-pinned identities; sync only ever reaches devices you explicitly paired.
 - 🛡️ **Password-manager aware** — entries carrying the standard "concealed" clipboard markers (1Password, Keychain, the Windows cloud-clipboard convention, …) are never recorded and never leave the machine.
-- 🍎 **Native on macOS** — a Swift and AppKit client with no web view in the process, alongside the cross-platform build.
-- 📍 **Stays out of the way** — no dock icon, no window in your face: the tray icon is the whole UI surface, and it idles when you do.
+- 🍎 **Native macOS client** — a native macOS client built with Swift and AppKit.
 
 ### What travels between devices
 
 | Content | Cap | Notes |
 |---|---|---|
-| Text | 512 KiB per entry | Byte-exact — never trimmed, never re-encoded |
-| Images | 16 MiB per entry | Streamed out of band, so a large screenshot never stalls the channel |
-| Files | 64 per copy | Streamed the same way; the files themselves are transferred, not just their paths |
-
-Group state is last-write-wins with echo suppression, so a copy propagates once and never loops back.
+| Text | 512 KiB | Transferred byte-for-byte to preserve the content |
+| Images | 16 MiB | Streamed out of band, so a large screenshot never stalls the channel |
+| Files | Up to 64 files per copy | Streamed the same way; the files themselves are transferred, not just their paths |
 
 ## 📥 Install
 
@@ -59,18 +56,18 @@ Grab a build from [Releases](https://github.com/zlx2019/lanecho/releases).
 
 | Build | Requires | Artifact |
 |---|---|---|
-| **Native — recommended** | macOS 14 Sonoma or later | `Lanecho-macos-native_x.y.z_universal.dmg` |
-| Cross-platform | macOS 13 or earlier | `Lanecho_x.y.z_aarch64.dmg` / `Lanecho_x.y.z_x64.dmg` |
+| **Native — recommended** | macOS 14 Sonoma or later | `Lanecho-x.y.z-macos-native-universal.dmg` |
+| Cross-platform | macOS 13 or earlier | `Lanecho-x.y.z-macos-aarch64.dmg` / `Lanecho-x.y.z-macos-x64.dmg` |
 
 Reach for the cross-platform build on a Mac only when the native one will not run on your system version. Both speak the same protocol and read the same data directory, so either one syncs with every other device on your LAN, and you can switch between them without losing history or pairings.
 
 ### 🪟 Windows
 
-`Lanecho_x.y.z_x64-setup.exe` — the NSIS installer registers the inbound firewall rule discovery needs.
+`Lanecho-x.y.z-windows-x64-setup.exe` — the NSIS installer registers the inbound firewall rule discovery needs.
 
 ### 🐧 Linux
 
-`Lanecho_x.y.z_amd64.AppImage` or `.deb`. See the FAQ for what is and is not supported there.
+`Lanecho-x.y.z-linux-amd64.AppImage` or `Lanecho-x.y.z-linux-amd64.deb`. See the FAQ for what is and is not supported there.
 
 > Builds are currently unsigned. On macOS, right-click the app and choose **Open** the first time (or run `xattr -cr /Applications/Lanecho.app`). Windows SmartScreen may ask for confirmation as well.
 

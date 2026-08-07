@@ -55,18 +55,22 @@ jobs:
             os: macos-latest
             args: --target aarch64-apple-darwin
             rust-target: aarch64-apple-darwin
+            asset_name_pattern: Lanecho-[version]-macos-[arch][setup][ext]
           - name: macOS (Intel)
             os: macos-latest
             args: --target x86_64-apple-darwin
             rust-target: x86_64-apple-darwin
+            asset_name_pattern: Lanecho-[version]-macos-[arch][setup][ext]
           - name: Linux
             os: ubuntu-22.04
             args: ""
             rust-target: ""
+            asset_name_pattern: Lanecho-[version]-linux-[arch][setup][ext]
           - name: Windows
             os: windows-latest
             args: ""
             rust-target: ""
+            asset_name_pattern: Lanecho-[version]-windows-[arch][setup][ext]
     steps:
       - uses: actions/checkout@v7
       - name: Install Linux dependencies
@@ -121,6 +125,7 @@ jobs:
           projectPath: apps/desktop
           tagName: ${{ github.ref_name }}
           args: ${{ matrix.args }}
+          releaseAssetNamePattern: ${{ matrix.asset_name_pattern }}
 
   macos-native:
     name: Bundle macOS (native)
@@ -167,7 +172,7 @@ jobs:
           staging=$(mktemp -d)
           cp -R "$app" "$staging/"
           ln -s /Applications "$staging/Applications"
-          dmg="Lanecho-macos-native_${NATIVE_VERSION}_universal.dmg"
+          dmg="Lanecho-${NATIVE_VERSION}-macos-native-universal.dmg"
           hdiutil create -volname "Lanecho" -srcfolder "$staging" \
             -ov -format UDZO "$dmg"
           echo "DMG_PATH=apps/macos/$dmg" >> "$GITHUB_ENV"
