@@ -107,6 +107,16 @@ pub fn run() {
             if let Some(preview) = app.get_webview_window("preview") {
                 let _ = preview.set_ignore_cursor_events(true);
             }
+            // Windows: the DWM drop shadow of an undecorated window is drawn
+            // in frame insets around the client area that the webview never
+            // paints — on a transparent window they render as black corners,
+            // so the shadow has to go (macOS keeps its native NSWindow shadow)
+            #[cfg(windows)]
+            for label in ["panel", "preview"] {
+                if let Some(window) = app.get_webview_window(label) {
+                    let _ = window.set_shadow(false);
+                }
+            }
             // Park the panel before it is ever shown: the first open would
             // otherwise paint a frame at the placement the system chose when
             // the window was created (see PANEL_PARKING)
@@ -377,12 +387,17 @@ pub fn resize_settings_window_impl(app: &tauri::AppHandle, content_height: f64) 
         target = target.min(max);
     }
     target = target.max((SETTINGS_MIN_HEIGHT * scale) as u32 + decoration);
-    // Jitter guard: a 1px difference does not trigger set_size (keeps it from
-    // feeding back into the frontend ResizeObserver)
-    if target.abs_diff(outer.height) < 2 {
+    // set_size sets the client (inner) size, so compare and preserve inner
+    // dimensions. Feeding outer.width back in grew the window by the frame
+    // border width on every call on Windows (outer is wider than inner
+    // there; on macOS the two are equal, which hid the bug) and the
+    // ResizeObserver round-trip turned that into unbounded growth.
+    // Jitter guard: a 1px difference does not trigger set_size (keeps it
+    // from feeding back into the frontend ResizeObserver)
+    if target.abs_diff(inner.height) < 2 {
         return;
     }
-    let _ = window.set_size(tauri::PhysicalSize::new(outer.width, target));
+    let _ = window.set_size(tauri::PhysicalSize::new(inner.width, target));
 }
 
 /// Where the panel waits while hidden (physical pixels, far outside every
@@ -402,15 +417,21 @@ pub fn resize_settings_window_impl(app: &tauri::AppHandle, content_height: f64) 
 /// the tray, which is exactly the window that appeared to flash and vanish.
 const PANEL_PARKING: (i32, i32) = (-30000, -30000);
 
+/// Moves a floating window to the off-screen parking spot (see
+/// `PANEL_PARKING`)
+fn park_window(window: &tauri::WebviewWindow) {
+    let _ = window.set_position(tauri::PhysicalPosition::new(
+        PANEL_PARKING.0,
+        PANEL_PARKING.1,
+    ));
+}
+
 /// Parks the hidden panel off screen (see `PANEL_PARKING`); every path that
 /// hides the panel has to call this, or the next open flashes a frame at the
 /// spot it was last shown
 fn park_panel(app: &tauri::AppHandle) {
     if let Some(panel) = app.get_webview_window("panel") {
-        let _ = panel.set_position(tauri::PhysicalPosition::new(
-            PANEL_PARKING.0,
-            PANEL_PARKING.1,
-        ));
+        park_window(&panel);
     }
 }
 
@@ -448,14 +469,18 @@ fn show_panel(app: &tauri::AppHandle) {
             tauri::PhysicalSize::new((380.0 * scale) as u32, (480.0 * scale) as u32)
         });
         if let Ok(Some(monitor)) = app.monitor_from_point(pos.x, pos.y) {
-            let mon_pos = monitor.position();
-            let mon_size = monitor.size();
-            let max_x =
-                f64::from(mon_pos.x) + f64::from(mon_size.width) - f64::from(panel_size.width);
-            let max_y =
-                f64::from(mon_pos.y) + f64::from(mon_size.height) - f64::from(panel_size.height);
-            x = x.min(max_x).max(f64::from(mon_pos.x));
-            y = y.min(max_y).max(f64::from(mon_pos.y));
+            // Clamp to the work area, not the full monitor: the tray click
+            // comes from inside the Windows taskbar, and a full-monitor clamp
+            // parked the panel flush in the bottom-right corner — covering
+            // the taskbar and the very tray icon that opened it. The work
+            // area also keeps it off the macOS menu bar / Dock
+            let area = monitor.work_area();
+            let max_x = f64::from(area.position.x) + f64::from(area.size.width)
+                - f64::from(panel_size.width);
+            let max_y = f64::from(area.position.y) + f64::from(area.size.height)
+                - f64::from(panel_size.height);
+            x = x.min(max_x).max(f64::from(area.position.x));
+            y = y.min(max_y).max(f64::from(area.position.y));
         }
         let _ = panel.set_position(tauri::PhysicalPosition::new(x, y));
     } else {
@@ -552,7 +577,13 @@ pub fn show_preview_impl(app: &tauri::AppHandle, anchor_y: Option<f64>, height: 
     // clicks meant for the window below). Taking it back does not affect
     // focus: the window has focusable=false, so canBecomeKeyWindow is always
     // NO on macOS and even a click on the card cannot take keyboard focus
-    // from the panel — hide-on-blur and the ⌘V handback still hold
+    // from the panel — hide-on-blur and the ⌘V handback still hold.
+    //
+    // Not on Windows: flipping this flag while the card is visible makes tao
+    // re-run ShowWindow(SW_SHOW), which activates the card and blurs the
+    // panel shut (see hide_preview_impl). Pass-through stays permanently on
+    // there — a truncated card cannot be wheel-scrolled on Windows
+    #[cfg(not(windows))]
     let _ = preview.set_ignore_cursor_events(wanted_h <= PREVIEW_HEIGHT_RANGE.1);
     let (card_w, card_h) = ((PREVIEW_SIZE.0 * scale) as i32, (logical_h * scale) as i32);
     let gap = (8.0 * scale) as i32;
@@ -587,11 +618,17 @@ pub fn show_preview_impl(app: &tauri::AppHandle, anchor_y: Option<f64>, height: 
                 gap,
                 desired_y: y,
             },
-            MonitorRect {
-                left: monitor.position().x,
-                top: monitor.position().y,
-                right: monitor.position().x + monitor.size().width as i32,
-                bottom: monitor.position().y + monitor.size().height as i32,
+            // Work area, not the full monitor: the card must stay off the
+            // Windows taskbar (and the macOS menu bar / Dock) just like the
+            // panel does
+            {
+                let area = monitor.work_area();
+                MonitorRect {
+                    left: area.position.x,
+                    top: area.position.y,
+                    right: area.position.x + area.size.width as i32,
+                    bottom: area.position.y + area.size.height as i32,
+                }
             },
         );
         (x, y) = placed;
@@ -652,10 +689,21 @@ fn place_preview(layout: PreviewLayout, mon: MonitorRect) -> (i32, i32) {
 
 /// Hides the preview card (follows the panel being dismissed, losing focus,
 /// or the highlighted row going away)
+///
+/// On Windows it parks off screen instead of hiding: whenever any window flag
+/// changes while the visible flag is set, tao re-runs `ShowWindow(SW_SHOW)`,
+/// which activates the window even with `WS_EX_NOACTIVATE` — re-showing the
+/// card would steal focus from the panel and trigger its hide-on-blur. By
+/// never clearing the visible flag after the first show (which `focus =
+/// false` in Tauri.toml turns into a non-activating `SW_SHOWNOACTIVATE`), no
+/// `ShowWindow` call ever happens again.
 pub fn hide_preview_impl(app: &tauri::AppHandle) {
     if let Some(preview) = app.get_webview_window("preview")
         && preview.is_visible().unwrap_or(false)
     {
+        #[cfg(windows)]
+        park_window(&preview);
+        #[cfg(not(windows))]
         let _ = preview.hide();
     }
 }
