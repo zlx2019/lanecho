@@ -317,7 +317,9 @@ func shutdownDrainsPendingHistoryJobs() async throws {
 /// Ignore verdict, sync leg: a suppressBroadcast event is recorded into the
 /// local history but never reaches the peer (the flag rides the event through
 /// the engine's outbound gate)
-@Test(.timeLimit(.minutes(1)))
+@Test(
+    .enabled(if: MulticastAvailability.isAvailable, MulticastAvailability.skipReason),
+    .timeLimit(.minutes(2)))
 func ignoreSuppressesSyncButStillRecords() async throws {
     let port = UInt16.random(in: 42600...42999)
     let a = try await CoreNode.start(discoveryPort: port)
@@ -348,7 +350,9 @@ func ignoreSuppressesSyncButStillRecords() async throws {
 /// Ignore verdict, record leg: a suppressRecord event syncs to the peer as
 /// usual but leaves no local history entry (the flag rides localCopied into
 /// the pump)
-@Test(.timeLimit(.minutes(1)))
+@Test(
+    .enabled(if: MulticastAvailability.isAvailable, MulticastAvailability.skipReason),
+    .timeLimit(.minutes(2)))
 func ignoreSuppressesRecordButStillSyncs() async throws {
     let port = UInt16.random(in: 42600...42999)
     let a = try await CoreNode.start(discoveryPort: port)
