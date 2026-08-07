@@ -33,8 +33,10 @@ export interface Settings {
   historySort: string;
   /** Hotkey that opens the history panel (empty string = disabled) */
   panelHotkey: string;
-  /** Toggle for direct paste from numbered slots (Alt+1..6) */
+  /** Toggle for direct paste from numbered slots (modifier+1..6) */
   slotHotkeys: boolean;
+  /** Modifier for the slot shortcuts: "CmdOrCtrl" / "Alt" / "Ctrl" */
+  slotModifier: string;
   /** Preview card delay (ms; 0 = immediate) */
   previewDelayMs: number;
   /** Paste automatically after an entry is chosen (macOS / Windows) */

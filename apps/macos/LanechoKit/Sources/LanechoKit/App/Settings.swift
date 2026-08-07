@@ -48,8 +48,12 @@ public struct Settings: Codable, Sendable, Equatable {
     /// Hotkey that opens the history panel (Tauri syntax; empty string
     /// disables it)
     public var panelHotkey: String
-    /// Toggle for pasting directly from a numbered slot (Alt+1..6)
+    /// Toggle for pasting directly from a numbered slot (modifier+1..6)
     public var slotHotkeys: Bool
+    /// Modifier for the slot shortcuts: "CmdOrCtrl" (⌘ here) / "Alt" /
+    /// "Ctrl"; anything else normalizes back to CmdOrCtrl. Shared with the
+    /// Tauri client under the same key
+    public var slotModifier: String
     /// Preview card delay (milliseconds; doubles as the coalescing window
     /// while sweeping the list)
     public var previewDelayMs: UInt32
@@ -70,8 +74,9 @@ public struct Settings: Codable, Sendable, Equatable {
         notifyOnSync: Bool = true, language: String = "",
         historyMaxEntries: Int = 200, historyRecordText: Bool = true,
         historyRecordImages: Bool = true, historyRecordFiles: Bool = true,
-        historySort: String = "recent", panelHotkey: String = "CmdOrCtrl+Shift+V",
-        slotHotkeys: Bool = true, previewDelayMs: UInt32 = 150,
+        historySort: String = "recent", panelHotkey: String = "CmdOrCtrl+Shift+C",
+        slotHotkeys: Bool = true, slotModifier: String = "CmdOrCtrl",
+        previewDelayMs: UInt32 = 150,
         autoPaste: Bool = false
     ) {
         self.tcpPort = tcpPort
@@ -91,6 +96,7 @@ public struct Settings: Codable, Sendable, Equatable {
         self.historySort = historySort
         self.panelHotkey = panelHotkey
         self.slotHotkeys = slotHotkeys
+        self.slotModifier = slotModifier
         self.previewDelayMs = previewDelayMs
         self.autoPaste = autoPaste
     }
@@ -150,6 +156,9 @@ public struct Settings: Codable, Sendable, Equatable {
         slotHotkeys =
             try container.decodeIfPresent(Bool.self, forKey: .slotHotkeys)
             ?? defaults.slotHotkeys
+        slotModifier =
+            try container.decodeIfPresent(String.self, forKey: .slotModifier)
+            ?? defaults.slotModifier
         previewDelayMs =
             try container.decodeIfPresent(UInt32.self, forKey: .previewDelayMs)
             ?? defaults.previewDelayMs
@@ -167,6 +176,9 @@ public struct Settings: Codable, Sendable, Equatable {
         }
         syncEnabled = syncMode != "off"
         maxSyncFileMb = min(max(maxSyncFileMb, 1), 512)
+        if !["CmdOrCtrl", "Alt", "Ctrl"].contains(slotModifier) {
+            slotModifier = "CmdOrCtrl"
+        }
     }
 
     /// Reads from the data directory (a missing or corrupt file yields

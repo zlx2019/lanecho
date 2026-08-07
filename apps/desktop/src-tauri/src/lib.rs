@@ -821,9 +821,9 @@ pub fn hide_preview_impl(app: &tauri::AppHandle) {
 /// first; shared by startup and settings changes)
 ///
 /// Returns Err when the panel hotkey fails to parse or register (the settings
-/// page reports it as hotkey_invalid); a slot hotkey (Alt+1..6) taken by
-/// another application is warned about and skipped one by one instead of
-/// failing the whole call.
+/// page reports it as hotkey_invalid); a slot hotkey (slotModifier+1..6)
+/// taken by another application is warned about and skipped one by one
+/// instead of failing the whole call.
 pub fn apply_hotkeys(app: &tauri::AppHandle, settings: &settings::Settings) -> Result<(), String> {
     use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
@@ -844,13 +844,14 @@ pub fn apply_hotkeys(app: &tauri::AppHandle, settings: &settings::Settings) -> R
     // looks broken
     let mut failures = Vec::new();
     if settings.slot_hotkeys {
+        let modifier = &settings.slot_modifier;
         for n in 1..=6u8 {
-            let slot: Result<Shortcut, _> = format!("Alt+{n}").parse();
+            let slot: Result<Shortcut, _> = format!("{modifier}+{n}").parse();
             match slot {
                 Ok(shortcut) => {
                     if let Err(e) = shortcuts.register(shortcut) {
                         tracing::warn!(
-                            "Failed to register slot hotkey Alt+{n} (possibly in use): {e}"
+                            "Failed to register slot hotkey {modifier}+{n} (possibly in use): {e}"
                         );
                         failures.push(n);
                     } else {
@@ -858,7 +859,7 @@ pub fn apply_hotkeys(app: &tauri::AppHandle, settings: &settings::Settings) -> R
                     }
                 }
                 Err(e) => {
-                    tracing::warn!("Failed to parse slot hotkey Alt+{n}: {e:?}");
+                    tracing::warn!("Failed to parse slot hotkey {modifier}+{n}: {e:?}");
                     failures.push(n);
                 }
             }

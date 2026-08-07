@@ -62,8 +62,13 @@ pub struct Settings {
     /// Hotkey that opens the history panel (Tauri shortcut syntax; an empty
     /// string disables it)
     pub panel_hotkey: String,
-    /// Toggle for the numbered slot shortcuts (Alt+1..6) that paste directly
+    /// Toggle for the numbered slot shortcuts (modifier+1..6) that paste
+    /// directly
     pub slot_hotkeys: bool,
+    /// Modifier for the slot shortcuts: "CmdOrCtrl" (⌘ on macOS, Ctrl
+    /// elsewhere) / "Alt" / "Ctrl"; anything else normalizes back to
+    /// CmdOrCtrl. Shared with the native client under the key `slotModifier`
+    pub slot_modifier: String,
     /// Preview card delay in milliseconds: how long the highlight has to rest
     /// on an entry before the card appears; 0 is immediate. It doubles as the
     /// coalescing window while sweeping the list, so too small a value makes
@@ -97,8 +102,9 @@ impl Default for Settings {
             history_record_images: true,
             history_record_files: true,
             history_sort: "recent".to_string(),
-            panel_hotkey: "CmdOrCtrl+Shift+V".to_string(),
+            panel_hotkey: "CmdOrCtrl+Shift+C".to_string(),
             slot_hotkeys: true,
+            slot_modifier: "CmdOrCtrl".to_string(),
             preview_delay_ms: 150,
             auto_paste: false,
         }
@@ -143,6 +149,10 @@ impl Settings {
         }
         self.sync_enabled = self.sync_mode != "off";
         self.max_sync_file_mb = self.max_sync_file_mb.clamp(1, 512);
+        if !matches!(self.slot_modifier.as_str(), "CmdOrCtrl" | "Alt" | "Ctrl") {
+            tracing::warn!(modifier = %self.slot_modifier, "Unknown slotModifier; falling back to CmdOrCtrl");
+            self.slot_modifier = "CmdOrCtrl".to_string();
+        }
     }
 
     /// Persist to the data directory with an atomic write: an in-place
@@ -276,6 +286,32 @@ mod tests {
         assert!(settings.sync_images);
         assert!(!settings.sync_files);
         assert_eq!(settings.max_sync_file_mb, 32);
+        assert_eq!(settings.panel_hotkey, "CmdOrCtrl+Shift+C");
+        assert_eq!(
+            settings.slot_modifier, "CmdOrCtrl",
+            "The default slot modifier resolves to Cmd on macOS and Ctrl on Windows"
+        );
+    }
+
+    /// Cross-client golden sample for the slot modifier: the key is spelled
+    /// `slotModifier` on both sides of the shared file, a stored value
+    /// survives a round trip, and an unknown value normalizes to CmdOrCtrl
+    /// instead of producing an unparsable shortcut
+    #[test]
+    fn slot_modifier_round_trips_and_normalizes() {
+        let settings = load_from_json(r#"{"slotModifier":"Alt"}"#);
+        assert_eq!(settings.slot_modifier, "Alt");
+
+        let json = serde_json::to_string(&settings).unwrap();
+        let raw: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            raw.get("slotModifier"),
+            Some(&serde_json::Value::String("Alt".into())),
+            "The key the native client reads must be spelled slotModifier"
+        );
+
+        let settings = load_from_json(r#"{"slotModifier":"Hyper"}"#);
+        assert_eq!(settings.slot_modifier, "CmdOrCtrl");
     }
 
     /// Record-resumed decision: true when any type goes off→on; false when a

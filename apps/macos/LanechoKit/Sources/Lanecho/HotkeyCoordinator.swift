@@ -22,7 +22,7 @@ final class HotkeyCoordinator {
     }
 
     /// Re-register the whole set from the current settings: the panel key
-    /// plus the Alt+1..6 direct slot pastes
+    /// plus the modifier+1..6 direct slot pastes
     func reregister(settings: Settings) {
         center.unregisterAll()
         failures = []
@@ -33,7 +33,7 @@ final class HotkeyCoordinator {
         }
         if settings.slotHotkeys {
             for slot in 0..<6 {
-                let accelerator = "Alt+\(slot + 1)"
+                let accelerator = "\(settings.slotModifier)+\(slot + 1)"
                 guard let spec = parseHotkey(accelerator) else { continue }
                 let core = core
                 let registered = center.register(spec) {

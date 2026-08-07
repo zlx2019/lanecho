@@ -129,8 +129,9 @@ pub fn save_settings(
     let old = lock(&state.settings).clone();
     let language_changed = old.language != settings.language;
     let sync_changed = old.sync_mode != settings.sync_mode;
-    let hotkeys_changed =
-        old.panel_hotkey != settings.panel_hotkey || old.slot_hotkeys != settings.slot_hotkeys;
+    let hotkeys_changed = old.panel_hotkey != settings.panel_hotkey
+        || old.slot_hotkeys != settings.slot_hotkeys
+        || old.slot_modifier != settings.slot_modifier;
 
     // Fallible steps come first: a failure fails the whole call, restores the
     // old state, and leaves no side effect behind

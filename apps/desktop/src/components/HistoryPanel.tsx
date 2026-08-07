@@ -26,6 +26,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api } from "../api";
 import { EVENTS } from "../events";
 import { formatError, useI18n, type Locale } from "../i18n";
+import { slotModLabel } from "../hotkeys";
 import { useTheme } from "../theme";
 import type { HistoryEntryDto, PreviewPayload } from "../types";
 import { Button } from "./ModalShell";
@@ -33,9 +34,9 @@ import { Button } from "./ModalShell";
 /** Whether we are running inside the Tauri runtime */
 const hasTauri = "__TAURI_INTERNALS__" in window;
 
-/** Modifier shown on slot badges (Alt+N is what gets registered: macOS
- *  displays ⌥, every other platform Alt+) */
-const SLOT_MOD = navigator.userAgent.includes("Mac") ? "⌥" : "Alt+";
+/** Fallback slot-badge modifier before settings load (default CmdOrCtrl:
+ *  ⌘ on macOS, Ctrl+ elsewhere) */
+const DEFAULT_SLOT_MOD = slotModLabel("CmdOrCtrl");
 
 /** Fallback preview-card delay (ms): used before settings load, kept in sync
  *  with the Settings default. The delay doubles as a coalescing window while
@@ -67,6 +68,8 @@ export function HistoryPanel() {
   // Preview-card delay (a setting; the reload on every panel open picks up
   // the latest value)
   const [previewDelay, setPreviewDelay] = useState(DEFAULT_PREVIEW_DELAY_MS);
+  // Slot-badge modifier label (follows the slotModifier setting, same reload)
+  const [slotMod, setSlotMod] = useState(DEFAULT_SLOT_MOD);
   // Preview suppression: no card while the pointer rests off the rows (search
   // row / blank tail of the list / footer menu)
   const [previewSuppressed, setPreviewSuppressed] = useState(false);
@@ -111,6 +114,7 @@ export function HistoryPanel() {
         setLang(settings.language);
       }
       setPreviewDelay(settings.previewDelayMs);
+      setSlotMod(slotModLabel(settings.slotModifier));
       setEntries(list);
     } catch (e) {
       console.error(e);
@@ -452,10 +456,10 @@ export function HistoryPanel() {
                 entry={entry}
                 index={index}
                 active={index === highlight}
-                // Slot badges only appear without a search term — Alt+N takes
-                // the Nth entry of the unfiltered ordering, so showing badges
-                // while filtering would mislead
-                slot={!query && index < 6 ? `${SLOT_MOD}${index + 1}` : ""}
+                // Slot badges only appear without a search term — a slot
+                // hotkey takes the Nth entry of the unfiltered ordering, so
+                // showing badges while filtering would mislead
+                slot={!query && index < 6 ? `${slotMod}${index + 1}` : ""}
                 t={t}
                 highlightElRef={highlightElRef}
                 onHover={hoverRow}

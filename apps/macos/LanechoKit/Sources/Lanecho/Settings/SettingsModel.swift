@@ -207,6 +207,15 @@ final class SettingsModel {
         onContentSizeChanged?()
     }
 
+    /// Slot modifier choice (⌘/⌥/⌃); re-registers, since the new combination
+    /// may collide with another app
+    func changeSlotModifier(_ modifier: String) {
+        patch { $0.slotModifier = modifier }
+        hotkeys.reregister(settings: settings)
+        hotkeyFailures = hotkeys.failures
+        onContentSizeChanged?()
+    }
+
     /// Incognito toggle (session state, never persisted)
     func toggleIncognito(_ on: Bool) {
         incognito = on
