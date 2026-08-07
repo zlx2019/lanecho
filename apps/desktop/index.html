@@ -12,19 +12,28 @@
           label = window.__TAURI_INTERNALS__.metadata.currentWindow.label;
         } catch (_) {
         }
-        if (label === "panel" || label === "preview") {
-          document.documentElement.style.background = "transparent";
-          return;
-        }
         var pref = null;
         try {
           pref = localStorage.getItem("lanecho-theme");
         } catch (_) {
         }
-        var dark =
-          pref === "dark" ||
-          (pref !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
-        document.documentElement.style.background = dark ? "#101425" : "#eef1fa";
+        // Same derivation as useTheme (theme.ts): an explicit preference
+        // wins, otherwise the system decides
+        var light =
+          pref === "light" ||
+          (pref !== "dark" && matchMedia("(prefers-color-scheme: light)").matches);
+        // The palette must be set before the first style pass: the
+        // stylesheet's defaults are the dark palette, so a light-theme
+        // document would otherwise paint one dark pass until React applies
+        // data-theme — and on a window shown right after load (the about
+        // window is created lazily and shown the moment it loads) the body
+        // background transition animates that flip in front of the user
+        document.documentElement.dataset.theme = light ? "light" : "dark";
+        if (label === "panel" || label === "preview") {
+          document.documentElement.style.background = "transparent";
+          return;
+        }
+        document.documentElement.style.background = light ? "#eef1fa" : "#101425";
       })();
     </script>
   </head>

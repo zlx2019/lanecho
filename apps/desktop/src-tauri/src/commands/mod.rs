@@ -579,6 +579,30 @@ pub fn show_settings_window(app: tauri::AppHandle) {
     crate::show_main_window(&app);
 }
 
+/// Backdrop a window paints before its document has rendered
+///
+/// `PageLoadEvent::Finished` fires when the document has loaded, **not when it
+/// has painted**, so showing the window then still puts an unpainted surface
+/// on screen for a frame or two. Left at its default that surface is black,
+/// and the about window visibly went black then light on Windows. Filling it
+/// with the theme backdrop up front makes the same gap invisible.
+///
+/// The two colours match the inline anti-flash script in index.html and have
+/// to stay in step with it. The theme comes from a live window: the frontend
+/// pushes the user's preference onto the native windows through setTheme, so
+/// this follows an explicit light/dark override as well as the system.
+pub fn theme_backdrop(app: &tauri::AppHandle) -> tauri::window::Color {
+    let dark = app
+        .get_webview_window("main")
+        .and_then(|window| window.theme().ok())
+        .is_none_or(|theme| theme == tauri::Theme::Dark);
+    if dark {
+        tauri::window::Color(0x10, 0x14, 0x25, 0xff)
+    } else {
+        tauri::window::Color(0xee, 0xf1, 0xfa, 0xff)
+    }
+}
+
 /// Open the about window, shared by the panel footer menu and the Linux tray
 /// menu
 ///
@@ -594,6 +618,10 @@ pub fn show_settings_window(app: tauri::AppHandle) {
 #[tauri::command]
 pub async fn show_about(app: tauri::AppHandle) {
     if let Some(win) = app.get_webview_window("about") {
+        // The theme may have changed since this window was built, and the
+        // backdrop is only read at creation — refresh it or a reopen flashes
+        // the theme the window was created with
+        let _ = win.set_background_color(Some(theme_backdrop(&app)));
         let _ = win.show();
         let _ = win.set_focus();
         return;
@@ -611,6 +639,7 @@ pub async fn show_about(app: tauri::AppHandle) {
     .resizable(false)
     .skip_taskbar(true)
     .center()
+    .background_color(theme_backdrop(&app))
     .visible(false)
     .on_page_load(|window, payload| {
         if payload.event() == tauri::webview::PageLoadEvent::Finished {

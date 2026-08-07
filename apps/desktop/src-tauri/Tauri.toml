@@ -49,6 +49,11 @@ visible = false
 skipTaskbar = true
 visibleOnAllWorkspaces = true
 focusable = false
+# Windows: the first show of an unfocused window is SW_SHOWNOACTIVATE; without
+# this, plain SW_SHOW activates the card even though it is not focusable
+# (WS_EX_NOACTIVATE only blocks mouse-click activation), stealing focus from
+# the panel and triggering its hide-on-blur
+focus = false
 transparent = true
 windowEffects = { effects = ["popover"], state = "active", radius = 12.0 }
 

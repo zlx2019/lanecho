@@ -108,6 +108,16 @@ pub fn run() {
             if let Some(preview) = app.get_webview_window("preview") {
                 let _ = preview.set_ignore_cursor_events(true);
             }
+            // Windows: the DWM drop shadow of an undecorated window is drawn
+            // in frame insets around the client area that the webview never
+            // paints — on a transparent window they render as black corners,
+            // so the shadow has to go (macOS keeps its native NSWindow shadow)
+            #[cfg(windows)]
+            for label in ["panel", "preview"] {
+                if let Some(window) = app.get_webview_window(label) {
+                    let _ = window.set_shadow(false);
+                }
+            }
             // Park the panel before it is ever shown: the first open would
             // otherwise paint a frame at the placement the system chose when
             // the window was created (see PANEL_PARKING)
@@ -339,6 +349,10 @@ async fn wait_for_termination() {
 /// footer entry points)
 pub fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
+        // Same reason as the about window: the backdrop behind an unpainted
+        // webview has to match the theme in force *now*, or reopening flashes
+        // the previous one (see commands::theme_backdrop)
+        let _ = window.set_background_color(Some(commands::theme_backdrop(app)));
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
@@ -380,12 +394,17 @@ pub fn resize_settings_window_impl(app: &tauri::AppHandle, content_height: f64) 
         target = target.min(max);
     }
     target = target.max((SETTINGS_MIN_HEIGHT * scale) as u32 + decoration);
-    // Jitter guard: a 1px difference does not trigger set_size (keeps it from
-    // feeding back into the frontend ResizeObserver)
-    if target.abs_diff(outer.height) < 2 {
+    // set_size sets the client (inner) size, so compare and preserve inner
+    // dimensions. Feeding outer.width back in grew the window by the frame
+    // border width on every call on Windows (outer is wider than inner
+    // there; on macOS the two are equal, which hid the bug) and the
+    // ResizeObserver round-trip turned that into unbounded growth.
+    // Jitter guard: a 1px difference does not trigger set_size (keeps it
+    // from feeding back into the frontend ResizeObserver)
+    if target.abs_diff(inner.height) < 2 {
         return;
     }
-    let _ = window.set_size(tauri::PhysicalSize::new(outer.width, target));
+    let _ = window.set_size(tauri::PhysicalSize::new(inner.width, target));
 }
 
 /// Where the panel waits while hidden (physical pixels, far outside every
@@ -405,27 +424,97 @@ pub fn resize_settings_window_impl(app: &tauri::AppHandle, content_height: f64) 
 /// the tray, which is exactly the window that appeared to flash and vanish.
 const PANEL_PARKING: (i32, i32) = (-30000, -30000);
 
+/// Moves a floating window to the off-screen parking spot (see
+/// `PANEL_PARKING`)
+fn park_window(window: &tauri::WebviewWindow) {
+    let _ = window.set_position(tauri::PhysicalPosition::new(
+        PANEL_PARKING.0,
+        PANEL_PARKING.1,
+    ));
+}
+
 /// Parks the hidden panel off screen (see `PANEL_PARKING`); every path that
 /// hides the panel has to call this, or the next open flashes a frame at the
 /// spot it was last shown
 fn park_panel(app: &tauri::AppHandle) {
     if let Some(panel) = app.get_webview_window("panel") {
-        let _ = panel.set_position(tauri::PhysicalPosition::new(
-            PANEL_PARKING.0,
-            PANEL_PARKING.1,
-        ));
+        park_window(&panel);
     }
 }
 
-/// Opens the history panel: positions it near the cursor, then shows and
-/// focuses it
+/// The tray icon's rectangle (physical pixels)
+#[derive(Clone, Copy)]
+struct IconRect {
+    left: f64,
+    top: f64,
+    right: f64,
+    bottom: f64,
+}
+
+/// Where the panel goes when the tray icon opens it (pure geometry, so the
+/// cases that need a real tray to reproduce are unit tested)
 ///
-/// It must be clamped to the edges of the monitor under the cursor: the tray
-/// icon sits right in a screen corner (top right on macOS, bottom right on
-/// Windows), so putting the panel's top-left corner at the cursor pushes the
-/// whole panel off screen — the OS does not pull a window back on screen when
-/// the application positioned it itself with set_position.
-fn show_panel(app: &tauri::AppHandle) {
+/// The panel sits **beside the icon, growing away from the screen edge the
+/// icon is on** — the shape every tray flyout has. Which edge that is comes
+/// from the icon's position within the work area, not from the platform:
+/// macOS puts its menu bar at the top, Windows puts the taskbar at the bottom
+/// by default but the user can move it to any side.
+///
+/// Anchoring to the icon rather than to the pointer is what makes this
+/// dependable. Pointer placement only reached the corner by way of the clamp,
+/// so it needed the pointer to be near the edge — and it is not, whenever the
+/// icon is opened from the Windows hidden-icon flyout, which sits well inside
+/// the screen. That left the panel stranded mid-screen.
+fn place_panel_at_tray(icon: IconRect, panel: (i32, i32), area: MonitorRect) -> (i32, i32) {
+    let (panel_w, panel_h) = panel;
+    let (icon_cx, icon_cy) = (
+        (icon.left + icon.right) / 2.0,
+        (icon.top + icon.bottom) / 2.0,
+    );
+    // Vertical: below the icon when it is in the upper half (a menu bar), above
+    // it when in the lower half (a taskbar along the bottom)
+    let below_icon = icon_cy < f64::from(area.top + area.bottom) / 2.0;
+    let y = if below_icon {
+        icon.bottom as i32
+    } else {
+        icon.top as i32 - panel_h
+    };
+    // Horizontal: line the panel's near edge up with the icon's, so it opens
+    // inward from whichever side the icon sits on
+    let x = if icon_cx < f64::from(area.left + area.right) / 2.0 {
+        icon.left as i32
+    } else {
+        icon.right as i32 - panel_w
+    };
+    (
+        x.clamp(area.left, (area.right - panel_w).max(area.left)),
+        y.clamp(area.top, (area.bottom - panel_h).max(area.top)),
+    )
+}
+
+/// What the panel is positioned against when it opens
+#[derive(Clone, Copy)]
+enum PanelAnchor {
+    /// The tray icon's own rectangle, carried by the click event
+    ///
+    /// Physical pixels: `tray-icon` reports the rect as PhysicalPosition /
+    /// PhysicalSize on every platform, so the conversion out of `tauri::Rect`
+    /// is lossless whatever scale factor it is given.
+    Tray(tauri::Rect),
+    /// The pointer — the global hotkey has no icon to sit next to, and
+    /// wherever the user is working is the least surprising place for it
+    Cursor,
+}
+
+/// Opens the history panel: positions it, then shows and focuses it
+///
+/// Whatever the anchor, the result is clamped into the **work area** of the
+/// monitor it lands on, never the full monitor: the tray sits inside the
+/// Windows taskbar, and clamping to the monitor put the panel over the
+/// taskbar and the very icon that opened it. The OS does not pull a window
+/// back on screen when the application placed it with set_position, so
+/// nothing else catches an overflow.
+fn show_panel(app: &tauri::AppHandle, anchor: PanelAnchor) {
     let Some(panel) = app.get_webview_window("panel") else {
         return;
     };
@@ -442,23 +531,64 @@ fn show_panel(app: &tauri::AppHandle) {
     if since_blur < 300 {
         return;
     }
-    if let Ok(pos) = app.cursor_position() {
-        let (mut x, mut y) = (pos.x, pos.y);
-        // The fallback is a logical size (380×480 from Tauri.toml) and has to
-        // be scaled into the physical coordinate space
-        let panel_size = panel.outer_size().unwrap_or_else(|_| {
-            let scale = panel.scale_factor().unwrap_or(1.0);
-            tauri::PhysicalSize::new((380.0 * scale) as u32, (480.0 * scale) as u32)
-        });
-        if let Ok(Some(monitor)) = app.monitor_from_point(pos.x, pos.y) {
-            let mon_pos = monitor.position();
-            let mon_size = monitor.size();
-            let max_x =
-                f64::from(mon_pos.x) + f64::from(mon_size.width) - f64::from(panel_size.width);
-            let max_y =
-                f64::from(mon_pos.y) + f64::from(mon_size.height) - f64::from(panel_size.height);
-            x = x.min(max_x).max(f64::from(mon_pos.x));
-            y = y.min(max_y).max(f64::from(mon_pos.y));
+    // The fallback is a logical size (380×480 from Tauri.toml) and has to be
+    // scaled into the physical coordinate space
+    let panel_size = panel.outer_size().unwrap_or_else(|_| {
+        let scale = panel.scale_factor().unwrap_or(1.0);
+        tauri::PhysicalSize::new((380.0 * scale) as u32, (480.0 * scale) as u32)
+    });
+    // The point used to pick the monitor, and — for a tray anchor — the icon
+    // to sit beside
+    let icon = match anchor {
+        PanelAnchor::Tray(rect) => {
+            let pos = rect.position.to_physical::<f64>(1.0);
+            let size = rect.size.to_physical::<u32>(1.0);
+            Some(IconRect {
+                left: pos.x,
+                top: pos.y,
+                right: pos.x + f64::from(size.width),
+                bottom: pos.y + f64::from(size.height),
+            })
+        }
+        PanelAnchor::Cursor => None,
+    };
+    let reference = match icon {
+        Some(icon) => Some((
+            (icon.left + icon.right) / 2.0,
+            (icon.top + icon.bottom) / 2.0,
+        )),
+        None => app.cursor_position().ok().map(|pos| (pos.x, pos.y)),
+    };
+    if let Some((ref_x, ref_y)) = reference {
+        let (mut x, mut y) = (ref_x, ref_y);
+        if let Ok(Some(monitor)) = app.monitor_from_point(ref_x, ref_y) {
+            let area = monitor.work_area();
+            let area = MonitorRect {
+                left: area.position.x,
+                top: area.position.y,
+                right: area.position.x + area.size.width as i32,
+                bottom: area.position.y + area.size.height as i32,
+            };
+            let placed = match icon {
+                Some(icon) => place_panel_at_tray(
+                    icon,
+                    (panel_size.width as i32, panel_size.height as i32),
+                    area,
+                ),
+                // The pointer anchors the panel's top-left corner and it
+                // expands down and right from there, the way it always has
+                None => (
+                    (ref_x as i32).clamp(
+                        area.left,
+                        (area.right - panel_size.width as i32).max(area.left),
+                    ),
+                    (ref_y as i32).clamp(
+                        area.top,
+                        (area.bottom - panel_size.height as i32).max(area.top),
+                    ),
+                ),
+            };
+            (x, y) = (f64::from(placed.0), f64::from(placed.1));
         }
         let _ = panel.set_position(tauri::PhysicalPosition::new(x, y));
     } else {
@@ -555,7 +685,13 @@ pub fn show_preview_impl(app: &tauri::AppHandle, anchor_y: Option<f64>, height: 
     // clicks meant for the window below). Taking it back does not affect
     // focus: the window has focusable=false, so canBecomeKeyWindow is always
     // NO on macOS and even a click on the card cannot take keyboard focus
-    // from the panel — hide-on-blur and the ⌘V handback still hold
+    // from the panel — hide-on-blur and the ⌘V handback still hold.
+    //
+    // Not on Windows: flipping this flag while the card is visible makes tao
+    // re-run ShowWindow(SW_SHOW), which activates the card and blurs the
+    // panel shut (see hide_preview_impl). Pass-through stays permanently on
+    // there — a truncated card cannot be wheel-scrolled on Windows
+    #[cfg(not(windows))]
     let _ = preview.set_ignore_cursor_events(wanted_h <= PREVIEW_HEIGHT_RANGE.1);
     let (card_w, card_h) = ((PREVIEW_SIZE.0 * scale) as i32, (logical_h * scale) as i32);
     let gap = (8.0 * scale) as i32;
@@ -590,11 +726,17 @@ pub fn show_preview_impl(app: &tauri::AppHandle, anchor_y: Option<f64>, height: 
                 gap,
                 desired_y: y,
             },
-            MonitorRect {
-                left: monitor.position().x,
-                top: monitor.position().y,
-                right: monitor.position().x + monitor.size().width as i32,
-                bottom: monitor.position().y + monitor.size().height as i32,
+            // Work area, not the full monitor: the card must stay off the
+            // Windows taskbar (and the macOS menu bar / Dock) just like the
+            // panel does
+            {
+                let area = monitor.work_area();
+                MonitorRect {
+                    left: area.position.x,
+                    top: area.position.y,
+                    right: area.position.x + area.size.width as i32,
+                    bottom: area.position.y + area.size.height as i32,
+                }
             },
         );
         (x, y) = placed;
@@ -620,6 +762,7 @@ struct PreviewLayout {
 }
 
 /// Visible rectangle of the monitor (physical pixels)
+#[derive(Clone, Copy)]
 struct MonitorRect {
     left: i32,
     top: i32,
@@ -655,10 +798,21 @@ fn place_preview(layout: PreviewLayout, mon: MonitorRect) -> (i32, i32) {
 
 /// Hides the preview card (follows the panel being dismissed, losing focus,
 /// or the highlighted row going away)
+///
+/// On Windows it parks off screen instead of hiding: whenever any window flag
+/// changes while the visible flag is set, tao re-runs `ShowWindow(SW_SHOW)`,
+/// which activates the window even with `WS_EX_NOACTIVATE` — re-showing the
+/// card would steal focus from the panel and trigger its hide-on-blur. By
+/// never clearing the visible flag after the first show (which `focus =
+/// false` in Tauri.toml turns into a non-activating `SW_SHOWNOACTIVATE`), no
+/// `ShowWindow` call ever happens again.
 pub fn hide_preview_impl(app: &tauri::AppHandle) {
     if let Some(preview) = app.get_webview_window("preview")
         && preview.is_visible().unwrap_or(false)
     {
+        #[cfg(windows)]
+        park_window(&preview);
+        #[cfg(not(windows))]
         let _ = preview.hide();
     }
 }
@@ -726,7 +880,7 @@ fn handle_shortcut(app: &tauri::AppHandle, shortcut: &tauri_plugin_global_shortc
         let hotkeys = lock(&state.hotkeys);
         if hotkeys.panel.as_ref() == Some(shortcut) {
             drop(hotkeys);
-            show_panel(app);
+            show_panel(app, PanelAnchor::Cursor);
             return;
         }
         hotkeys
@@ -902,10 +1056,14 @@ fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
             if let TrayIconEvent::Click {
                 button: MouseButton::Left | MouseButton::Right,
                 button_state: MouseButtonState::Up,
+                rect,
                 ..
             } = event
             {
-                show_panel(tray.app_handle());
+                // The icon's own rectangle, not the pointer: the pointer is
+                // somewhere inside the hidden-icon flyout when the tray icon
+                // is opened from there, which is nowhere near the screen edge
+                show_panel(tray.app_handle(), PanelAnchor::Tray(rect));
             }
         });
 
@@ -947,7 +1105,9 @@ fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
             .show_menu_on_left_click(false)
             .on_menu_event(|app, event| match event.id().as_ref() {
                 "toggle_sync" => toggle_sync_from_tray(app),
-                "history" => show_panel(app),
+                // The Linux tray fires no click event, so this menu item is
+                // the only way in and carries no icon rectangle
+                "history" => show_panel(app, PanelAnchor::Cursor),
                 "settings" => show_main_window(app),
                 // show_about is an async command (lazy window creation has to
                 // avoid the Windows deadlock of building a webview
@@ -989,6 +1149,115 @@ fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
 
     tray.build(app)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tray_panel_layout_tests {
+    use super::*;
+
+    /// Panel size used throughout (380×480, as configured)
+    const PANEL: (i32, i32) = (380, 480);
+
+    /// A 1920×1080 screen whose work area stops 40px short of the bottom —
+    /// a Windows taskbar along the bottom edge
+    fn taskbar_bottom() -> MonitorRect {
+        MonitorRect {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 1040,
+        }
+    }
+
+    /// A tray icon rectangle, 24×24, at the given top-left
+    fn icon(x: f64, y: f64) -> IconRect {
+        IconRect {
+            left: x,
+            top: y,
+            right: x + 24.0,
+            bottom: y + 24.0,
+        }
+    }
+
+    /// Windows, tray at the bottom right: the panel sits above the icon with
+    /// their right edges lined up — never over the taskbar, never mid-screen
+    ///
+    /// The icon itself lives *inside* the taskbar, below the work area, so the
+    /// clamp is what settles the panel's bottom edge: flush against the top of
+    /// the taskbar, which is the closest it can get to the icon
+    #[test]
+    fn opens_above_a_bottom_right_tray_icon() {
+        let area = taskbar_bottom();
+        let (x, y) = place_panel_at_tray(icon(1850.0, 1048.0), PANEL, area);
+        assert_eq!(x + PANEL.0, 1874, "right edges line up with the icon");
+        assert_eq!(y + PANEL.1, area.bottom, "bottom sits on the taskbar");
+        assert!(y >= area.top, "and the top is still on screen");
+    }
+
+    /// An icon sitting a few slots in from the edge — the common case, with
+    /// other tray icons and the clock to its right — opens against the icon
+    /// rather than against the screen edge
+    #[test]
+    fn follows_an_icon_that_is_not_in_the_very_corner() {
+        let area = taskbar_bottom();
+        let (x, y) = place_panel_at_tray(icon(1700.0, 1048.0), PANEL, area);
+        assert_eq!(
+            x + PANEL.0,
+            1724,
+            "right edge tracks the icon, not the screen"
+        );
+        assert_eq!(y + PANEL.1, area.bottom);
+        assert!(
+            x + PANEL.0 < area.right,
+            "leaves the icons to its right uncovered"
+        );
+    }
+
+    /// macOS, menu bar icon at the top right: the panel drops below the icon,
+    /// right edges lined up — the placement the native client also produces
+    #[test]
+    fn drops_below_a_top_right_menu_bar_icon() {
+        let area = MonitorRect {
+            left: 0,
+            top: 25,
+            right: 1512,
+            bottom: 982,
+        };
+        let (x, y) = place_panel_at_tray(icon(1450.0, 0.0), PANEL, area);
+        assert_eq!(y, 25, "below the menu bar, clamped to the work area top");
+        assert_eq!(x, 1474 - 380);
+    }
+
+    /// A taskbar moved to the left edge puts the tray at the bottom left: the
+    /// panel opens upward and to the right, hugging that corner instead
+    #[test]
+    fn opens_from_a_bottom_left_tray() {
+        let area = MonitorRect {
+            left: 60,
+            top: 0,
+            right: 1920,
+            bottom: 1080,
+        };
+        let (x, y) = place_panel_at_tray(icon(70.0, 1050.0), PANEL, area);
+        assert_eq!(x, 70, "left edges line up");
+        // No bottom inset here — the taskbar is down the left side — so the
+        // panel rests directly on the icon instead of on a work-area edge
+        assert_eq!(y + PANEL.1, 1050, "bottom sits on the icon");
+    }
+
+    /// A screen shorter than the panel cannot fit it: the clamp still yields a
+    /// point inside the work area rather than an inverted range
+    #[test]
+    fn survives_a_work_area_smaller_than_the_panel() {
+        let tiny = MonitorRect {
+            left: 0,
+            top: 0,
+            right: 300,
+            bottom: 300,
+        };
+        let (x, y) = place_panel_at_tray(icon(280.0, 280.0), PANEL, tiny);
+        assert_eq!((x, y), (0, 0));
+    }
 }
 
 #[cfg(test)]
