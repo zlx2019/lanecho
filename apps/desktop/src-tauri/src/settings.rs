@@ -69,6 +69,14 @@ pub struct Settings {
     /// coalescing window while sweeping the list, so too small a value makes
     /// the card flash on a fast pass
     pub preview_delay_ms: u32,
+    /// Paste automatically after an entry is chosen (macOS and Windows; needs
+    /// Accessibility permission on macOS, off by default)
+    ///
+    /// **The key must stay `autoPaste`**: the native macOS client reads and
+    /// writes the same settings.json, and this field started there. Dropping
+    /// or renaming it here would wipe the native client's setting every time
+    /// this one saves.
+    pub auto_paste: bool,
 }
 
 impl Default for Settings {
@@ -92,6 +100,7 @@ impl Default for Settings {
             panel_hotkey: "CmdOrCtrl+Shift+V".to_string(),
             slot_hotkeys: true,
             preview_delay_ms: 150,
+            auto_paste: false,
         }
     }
 }
@@ -235,6 +244,27 @@ mod tests {
         assert_eq!(settings.max_sync_file_mb, 512);
         let settings = load_from_json(r#"{"maxSyncFileMb":0}"#);
         assert_eq!(settings.max_sync_file_mb, 1);
+    }
+
+    /// Cross-client golden sample: the native macOS client owns this file too
+    /// and `autoPaste` started there, so the key has to survive a load/save
+    /// round trip untouched. Losing it would silently reset the native
+    /// client's setting on every save from this side
+    #[test]
+    fn auto_paste_survives_a_round_trip_with_the_native_client() {
+        let settings = load_from_json(r#"{"autoPaste":true}"#);
+        assert!(
+            settings.auto_paste,
+            "autoPaste must decode from the shared file"
+        );
+
+        let json = serde_json::to_string(&settings).unwrap();
+        let raw: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            raw.get("autoPaste"),
+            Some(&serde_json::Value::Bool(true)),
+            "The key the native client reads must be spelled autoPaste"
+        );
     }
 
     /// Default values used when the newer fields are absent

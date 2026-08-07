@@ -2339,6 +2339,7 @@ dependencies = [
  "anyhow",
  "fast_image_resize",
  "lanecho-core",
+ "objc2-foundation",
  "png 0.18.1",
  "serde",
  "serde_json",
@@ -2354,6 +2355,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

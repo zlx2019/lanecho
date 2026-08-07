@@ -387,6 +387,11 @@ export function HistoryPanel() {
     // treated as list navigation — otherwise the panel disappears halfway
     // through typing a Chinese search
     if (e.nativeEvent.isComposing) return;
+    // Shift (or Cmd, the macOS document convention) turns an arrow into a
+    // jump to the far end of the list. It cannot be expressed as an arrow
+    // with a large step: the step is relative to the current row, and jumping
+    // has to land on an end regardless of where the highlight sits
+    const jump = e.shiftKey || e.metaKey;
     if (e.key === "Escape") {
       dismiss();
     } else if (e.key === "ArrowDown") {
@@ -395,12 +400,12 @@ export function HistoryPanel() {
       // Keyboard navigation is explicit intent: lift the suppression caused
       // by the pointer resting off the rows
       setPreviewSuppressed(false);
-      setSelected((s) => Math.min(s + 1, filtered.length - 1));
+      setSelected((s) => (jump ? filtered.length - 1 : Math.min(s + 1, filtered.length - 1)));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       inputSourceRef.current = "keyboard";
       setPreviewSuppressed(false);
-      setSelected((s) => Math.max(s - 1, 0));
+      setSelected((s) => (jump ? 0 : Math.max(s - 1, 0)));
     } else if (e.key === "Enter" && filtered[highlight]) {
       void choose(filtered[highlight]);
     }

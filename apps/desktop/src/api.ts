@@ -2,6 +2,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  AutoPasteStatus,
   DeviceDto,
   EntryTextDto,
   HistoryEntryDto,
@@ -93,4 +94,9 @@ export const api = {
   /** Slot hotkeys that failed to register (the N of Alt+N; the settings page
    *  reports them as taken) */
   getSlotHotkeyFailures: () => invoke<number[]>("get_slot_hotkey_failures"),
+  /** Whether auto-paste can work on this machine */
+  autoPasteStatus: () => invoke<AutoPasteStatus>("auto_paste_status"),
+  /** Ask for the permission auto-paste needs (macOS raises the system
+   *  authorization prompt) and read the state back */
+  requestAutoPastePermission: () => invoke<AutoPasteStatus>("request_auto_paste_permission"),
 };

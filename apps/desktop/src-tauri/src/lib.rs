@@ -12,6 +12,7 @@
 //!   set_checked, see TrayMenu): replacing it wholesale with set_menu has no
 //!   effect, do not go back to rebuilding it
 
+mod autopaste;
 mod bridge;
 mod commands;
 mod history;
@@ -197,6 +198,8 @@ pub fn run() {
             commands::history_usage,
             commands::set_incognito,
             commands::get_incognito,
+            commands::auto_paste_status,
+            commands::request_auto_paste_permission,
             commands::window_effects_active,
             commands::get_slot_hotkey_failures,
         ])

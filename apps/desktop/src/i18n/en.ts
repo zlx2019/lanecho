@@ -119,6 +119,11 @@ export const en = {
     slotHotkeys: "Quick paste (Alt+1~6)",
     slotHotkeysHint: "Top 6 entries in the panel's current order",
     slotConflict: (slots: string) => `Alt+${slots} taken by another app, not active`,
+    autoPaste: "Paste after selecting",
+    autoPasteHint: "Sends the paste key to the frontmost app once you pick an entry",
+    autoPastePermission:
+      "Accessibility permission required: enable Lanecho under System Settings → Privacy & Security → Accessibility, then restart Lanecho.",
+    autoPasteGrant: "Grant",
     usage: (size: string) => `Using ${size}`,
     incognito: "Pause recording",
     incognitoHint: "Nothing is added to history while on (this session only)",
