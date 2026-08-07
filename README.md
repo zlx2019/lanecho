@@ -59,18 +59,18 @@ Grab a build from [Releases](https://github.com/zlx2019/lanecho/releases).
 
 | Build | Requires | Artifact |
 |---|---|---|
-| **Native — recommended** | macOS 14 Sonoma or later | `Lanecho-macos-native_x.y.z_universal.dmg` |
-| Cross-platform | macOS 13 or earlier | `Lanecho_x.y.z_aarch64.dmg` / `Lanecho_x.y.z_x64.dmg` |
+| **Native — recommended** | macOS 14 Sonoma or later | `Lanecho-x.y.z-macos-native-universal.dmg` |
+| Cross-platform | macOS 13 or earlier | `Lanecho-x.y.z-macos-aarch64.dmg` / `Lanecho-x.y.z-macos-x64.dmg` |
 
 Reach for the cross-platform build on a Mac only when the native one will not run on your system version. Both speak the same protocol and read the same data directory, so either one syncs with every other device on your LAN, and you can switch between them without losing history or pairings.
 
 ### 🪟 Windows
 
-`Lanecho_x.y.z_x64-setup.exe` — the NSIS installer registers the inbound firewall rule discovery needs.
+`Lanecho-x.y.z-windows-x64-setup.exe` — the NSIS installer registers the inbound firewall rule discovery needs.
 
 ### 🐧 Linux
 
-`Lanecho_x.y.z_amd64.AppImage` or `.deb`. See the FAQ for what is and is not supported there.
+`Lanecho-x.y.z-linux-amd64.AppImage` or `Lanecho-x.y.z-linux-amd64.deb`. See the FAQ for what is and is not supported there.
 
 > Builds are currently unsigned. On macOS, right-click the app and choose **Open** the first time (or run `xattr -cr /Applications/Lanecho.app`). Windows SmartScreen may ask for confirmation as well.
 

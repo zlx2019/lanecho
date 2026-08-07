@@ -59,18 +59,18 @@
 
 | 版本 | 系统要求 | 安装包 |
 |---|---|---|
-| **原生版 —— 推荐** | macOS 14 Sonoma 及以上 | `Lanecho-macos-native_x.y.z_universal.dmg` |
-| 跨平台版 | macOS 13 及更早 | `Lanecho_x.y.z_aarch64.dmg` / `Lanecho_x.y.z_x64.dmg` |
+| **原生版 —— 推荐** | macOS 14 Sonoma 及以上 | `Lanecho-x.y.z-macos-native-universal.dmg` |
+| 跨平台版 | macOS 13 及更早 | `Lanecho-x.y.z-macos-aarch64.dmg` / `Lanecho-x.y.z-macos-x64.dmg` |
 
 在 Mac 上只有当系统版本跑不了原生版时，才需要退回跨平台版。两者说的是同一套协议、读的是同一份数据目录，所以无论装哪个都能和局域网里的其他设备同步，换着用也不会丢历史与配对关系。
 
 ### 🪟 Windows
 
-`Lanecho_x.y.z_x64-setup.exe` —— NSIS 安装包会自动注册设备发现所需的入站防火墙规则。
+`Lanecho-x.y.z-windows-x64-setup.exe` —— NSIS 安装包会自动注册设备发现所需的入站防火墙规则。
 
 ### 🐧 Linux
 
-`Lanecho_x.y.z_amd64.AppImage` 或 `.deb`。该平台的支持范围见常见问题。
+`Lanecho-x.y.z-linux-amd64.AppImage` 或 `Lanecho-x.y.z-linux-amd64.deb`。该平台的支持范围见常见问题。
 
 > 目前的构建尚未签名。macOS 首次打开时请右键选择**打开**（或执行 `xattr -cr /Applications/Lanecho.app`）；Windows 的 SmartScreen 也可能弹出确认提示。
 
