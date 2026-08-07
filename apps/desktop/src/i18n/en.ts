@@ -116,9 +116,11 @@ export const en = {
     sortFrequent: "Most copied",
     panelHotkey: "Panel hotkey",
     panelHotkeyHint: "Leave empty to disable; applies on save",
-    slotHotkeys: "Quick paste (Alt+1~6)",
+    slotHotkeys: "Quick paste (1~6)",
     slotHotkeysHint: "Top 6 entries in the panel's current order",
-    slotConflict: (slots: string) => `Alt+${slots} taken by another app, not active`,
+    slotModifier: "Modifier",
+    slotModifierHint: "Combined with digits 1~6 to restore an entry directly",
+    slotConflict: (combos: string) => `${combos} taken by another app, not active`,
     autoPaste: "Paste after selecting",
     autoPasteHint: "Sends the paste key to the frontmost app once you pick an entry",
     autoPastePermission:

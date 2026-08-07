@@ -113,9 +113,12 @@ final class HistoryPanelViewController: NSViewController {
     /// Preview card delay in milliseconds, re-read from settings on every
     /// panel open
     private var previewDelayMs: UInt32 = 150
-    /// Whether direct slot pastes are on, which decides if the ⌥1…⌥6 hints
+    /// Whether direct slot pastes are on, which decides if the slot hints
     /// appear on the right of a row
     private var slotHotkeysEnabled = true
+    /// Modifier symbol shown in the slot hints (follows the slotModifier
+    /// setting, re-read on every panel open)
+    private var slotModSymbol = slotModifierSymbol("CmdOrCtrl")
     /// Auto-paste on selection, re-read from settings on every panel open
     private var autoPasteEnabled = false
 
@@ -471,8 +474,10 @@ final class HistoryPanelViewController: NSViewController {
             let settings = await core.currentSettings()
             previewDelayMs = settings.previewDelayMs
             autoPasteEnabled = settings.autoPaste
-            if slotHotkeysEnabled != settings.slotHotkeys {
+            let symbol = slotModifierSymbol(settings.slotModifier)
+            if slotHotkeysEnabled != settings.slotHotkeys || slotModSymbol != symbol {
                 slotHotkeysEnabled = settings.slotHotkeys
+                slotModSymbol = symbol
                 tableView.reloadData()
             }
         }
@@ -845,9 +850,9 @@ extension HistoryPanelViewController: NSTableViewDataSource, NSTableViewDelegate
             tableView.makeView(withIdentifier: HistoryCellView.identifier, owner: self)
             as? HistoryCellView ?? HistoryCellView(frame: .zero)
         cell.identifier = HistoryCellView.identifier
-        // Slot hints go on the first 6 rows only, matching the Alt+1..6 keys
+        // Slot hints go on the first 6 rows only, matching the slot hotkeys
         // actually registered
-        let hint = slotHotkeysEnabled && row < 6 ? "⌥\(row + 1)" : ""
+        let hint = slotHotkeysEnabled && row < 6 ? "\(slotModSymbol)\(row + 1)" : ""
         cell.configure(with: entries[row], slotHint: hint)
         return cell
     }

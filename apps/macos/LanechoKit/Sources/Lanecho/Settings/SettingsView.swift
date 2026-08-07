@@ -415,6 +415,18 @@ struct HotkeysTab: View {
             }
             SettingsSection(footer: model.texts.slotHotkeysNote) {
                 SettingsToggleRow(label: model.texts.slotHotkeysLabel, isOn: slotBinding)
+                if model.settings.slotHotkeys {
+                    SettingsRow(model.texts.slotModifierLabel) {
+                        Picker("", selection: slotModifierBinding) {
+                            Text("⌘ Command").tag("CmdOrCtrl")
+                            Text("⌥ Option").tag("Alt")
+                            Text("⌃ Control").tag("Ctrl")
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .fixedSize()
+                    }
+                }
             }
             if !model.hotkeyFailures.isEmpty {
                 SettingsSection {
@@ -438,5 +450,11 @@ struct HotkeysTab: View {
         Binding(
             get: { model.settings.slotHotkeys },
             set: { model.changeSlotHotkeys($0) })
+    }
+
+    private var slotModifierBinding: Binding<String> {
+        Binding(
+            get: { model.settings.slotModifier },
+            set: { model.changeSlotModifier($0) })
     }
 }

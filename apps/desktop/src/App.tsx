@@ -18,6 +18,7 @@ import { Button, ToggleRow } from "./components/ModalShell";
 import { useLanecho } from "./hooks/useLanecho";
 import { formatError, useI18n, type Lang } from "./i18n";
 import { useTheme, type ThemePref } from "./theme";
+import { SLOT_MODIFIER_OPTIONS, slotModLabel } from "./hotkeys";
 import type { AutoPasteStatus, Settings } from "./types";
 
 /** Whether we are running inside the Tauri runtime */
@@ -563,7 +564,7 @@ export default function App() {
                 <input
                   value={hotkeyInput}
                   onChange={(e) => setHotkeyInput(e.target.value)}
-                  placeholder="CmdOrCtrl+Shift+V"
+                  placeholder="CmdOrCtrl+Shift+C"
                   className="font-gauge w-56 rounded-md border border-line-2 bg-abyss/60 px-3 py-1.5 text-sm text-fog outline-none focus:border-sonar/60"
                 />
                 <span className="text-[11px] text-mist">{t.historySettings.panelHotkeyHint}</span>
@@ -582,9 +583,44 @@ export default function App() {
                   }, 300);
                 }}
               />
+              {(settings?.slotHotkeys ?? true) && (
+                <>
+                  <div className="gauge-label mt-3 mb-1">{t.historySettings.slotModifier}</div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex gap-1.5">
+                      {SLOT_MODIFIER_OPTIONS.map(({ value, label }) => (
+                        <SegButton
+                          key={value}
+                          active={(settings?.slotModifier ?? "CmdOrCtrl") === value}
+                          onClick={() => {
+                            patchSettings({ slotModifier: value });
+                            // Same re-registration window as the toggle: the
+                            // new combination may collide with another app
+                            setTimeout(() => {
+                              api
+                                .getSlotHotkeyFailures()
+                                .then(setSlotFailures)
+                                .catch(console.error);
+                            }, 300);
+                          }}
+                        >
+                          {label}
+                        </SegButton>
+                      ))}
+                    </div>
+                    <span className="text-[11px] text-mist">
+                      {t.historySettings.slotModifierHint}
+                    </span>
+                  </div>
+                </>
+              )}
               {(settings?.slotHotkeys ?? true) && slotFailures.length > 0 && (
                 <div className="mt-1 text-[11px] text-alert">
-                  {t.historySettings.slotConflict(slotFailures.join("/"))}
+                  {t.historySettings.slotConflict(
+                    slotFailures
+                      .map((n) => `${slotModLabel(settings?.slotModifier ?? "CmdOrCtrl")}${n}`)
+                      .join("/"),
+                  )}
                 </div>
               )}
 

@@ -29,7 +29,7 @@ Pair two devices once. From then on, whatever you copy on one is ready to paste 
 
 - 🔗 **LAN P2P** — data travels directly between devices, with no server or cloud required.
 - ⚡ **Instant sync** — copied data is immediately synced to the clipboards of other devices and stored in history. Each copy propagates only once.
-- 📋 **Clipboard history** — open the history panel with a hotkey (default `Cmd/Ctrl+Shift+V`) and quickly select previously copied content. Use `Alt+1..6` to put any of the top six entries straight back on the clipboard. Hover an entry to view its details.
+- 📋 **Clipboard history** — open the history panel with a hotkey (default `Cmd/Ctrl+Shift+C`) and quickly select previously copied content. Use `Cmd/Ctrl+1..6` (modifier configurable) to put any of the top six entries straight back on the clipboard. Hover an entry to view its details.
 - 🖼️ **Multiple content types** — record and sync text, screenshots, and files.
 - 📡 **Zero-config discovery** — mDNS with a UDP multicast fallback; nearby devices just show up, on any subnet your LAN routes.
 - 🤝 **Pair once** — explicitly pair both devices once; the pairing remains valid until either side removes it.

@@ -71,6 +71,7 @@ struct Texts: Sendable {
     let usageLabel: String
     let panelHotkeyLabel: String
     let slotHotkeysLabel: String
+    let slotModifierLabel: String
     let slotHotkeysNote: String
     let hotkeyConflict: String
     let hotkeyUnset: String
@@ -319,7 +320,8 @@ extension Texts {
         recordNote: "记录类型只影响本机历史, 不影响同步。",
         usageLabel: "磁盘占用",
         panelHotkeyLabel: "历史面板",
-        slotHotkeysLabel: "快速粘贴 (⌥1…⌥6)",
+        slotHotkeysLabel: "快速粘贴 (1…6)",
+        slotModifierLabel: "修饰键",
         slotHotkeysNote: "不打开面板, 直接还原列表第 1~6 条。",
         hotkeyConflict: "注册失败(可能被其他应用占用)",
         hotkeyUnset: "未绑定",
@@ -445,7 +447,8 @@ extension Texts {
         recordNote: "Recording types affect local history only, not syncing.",
         usageLabel: "Disk usage",
         panelHotkeyLabel: "History panel",
-        slotHotkeysLabel: "Quick paste (⌥1…⌥6)",
+        slotHotkeysLabel: "Quick paste (1…6)",
+        slotModifierLabel: "Modifier",
         slotHotkeysNote: "Restores entries 1–6 directly without opening the panel.",
         hotkeyConflict: "Registration failed (possibly taken by another app)",
         hotkeyUnset: "Not bound",

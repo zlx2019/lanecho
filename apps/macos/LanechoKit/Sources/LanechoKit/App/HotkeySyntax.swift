@@ -70,6 +70,17 @@ public func hotkeyAccelerator(keyCode: UInt32, modifiers: UInt32) -> String? {
     return parts.joined(separator: "+")
 }
 
+/// Display symbol for a slot modifier token ("CmdOrCtrl" → ⌘ on this
+/// platform); unknown values fall back to ⌘, mirroring the settings
+/// normalization. Used by the panel slot hints and the settings page
+public func slotModifierSymbol(_ modifier: String) -> String {
+    switch modifier {
+    case "Alt": "⌥"
+    case "Ctrl": "⌃"
+    default: "⌘"
+    }
+}
+
 /// Key code → canonical token (single-character keys uppercased, function keys
 /// keep their conventional spelling)
 private func tokenName(of keyCode: UInt32) -> String? {

@@ -60,7 +60,22 @@ private func tempDir() -> URL {
         contentsOf: dir.appendingPathComponent("settings.json"), encoding: .utf8)
     #expect(text.contains("\"autoPaste\""))
     #expect(text.contains("\"previewDelayMs\""))
+    #expect(text.contains("\"slotModifier\""))
     #expect(Settings.load(dataDir: dir) == settings)
+}
+
+/// Slot modifier: a stored choice survives, an unknown value normalizes back
+/// to CmdOrCtrl (same whitelist as the Tauri client) instead of producing an
+/// unregistrable shortcut
+@Test func slotModifierNormalizes() {
+    #expect(Settings().slotModifier == "CmdOrCtrl")
+    var settings = Settings()
+    settings.slotModifier = "Alt"
+    settings.normalize()
+    #expect(settings.slotModifier == "Alt")
+    settings.slotModifier = "Hyper"
+    settings.normalize()
+    #expect(settings.slotModifier == "CmdOrCtrl")
 }
 
 /// Write a legacy-shaped file: no sync v2 fields at all, only syncEnabled

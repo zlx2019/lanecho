@@ -98,7 +98,7 @@ final class HistoryCellView: NSTableCellView {
     }
 
     /// Fill in one projection; `slotHint` is the slot hint string such as
-    /// "⌥1", empty when there is none
+    /// "⌘1", empty when there is none
     func configure(with meta: HistoryEntryMeta, slotHint hint: String) {
         kindIcon.image = NSImage(
             systemSymbolName: Self.kindSymbol(of: meta.kind), accessibilityDescription: nil)
