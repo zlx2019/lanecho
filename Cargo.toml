@@ -82,6 +82,10 @@ windows-sys = { version = "0.61", features = [
     "Win32_UI_WindowsAndMessaging",
     # SendInput, for the synthesized paste keystroke (desktop autopaste module)
     "Win32_UI_Input_KeyboardAndMouse",
+    # ExtractIconExW + GDI bitmap readout, for the source application icon
+    # (core clipboard::frontapp)
+    "Win32_UI_Shell",
+    "Win32_Graphics_Gdi",
 ] }
 
 [workspace.lints.rust]
