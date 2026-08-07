@@ -346,6 +346,10 @@ async fn wait_for_termination() {
 /// footer entry points)
 pub fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
+        // Same reason as the about window: the backdrop behind an unpainted
+        // webview has to match the theme in force *now*, or reopening flashes
+        // the previous one (see commands::theme_backdrop)
+        let _ = window.set_background_color(Some(commands::theme_backdrop(app)));
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();

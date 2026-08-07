@@ -530,7 +530,7 @@ pub fn show_settings_window(app: tauri::AppHandle) {
     crate::show_main_window(&app);
 }
 
-/// Backdrop the about window paints before its document has rendered
+/// Backdrop a window paints before its document has rendered
 ///
 /// `PageLoadEvent::Finished` fires when the document has loaded, **not when it
 /// has painted**, so showing the window then still puts an unpainted surface
@@ -542,7 +542,7 @@ pub fn show_settings_window(app: tauri::AppHandle) {
 /// to stay in step with it. The theme comes from a live window: the frontend
 /// pushes the user's preference onto the native windows through setTheme, so
 /// this follows an explicit light/dark override as well as the system.
-fn about_backdrop(app: &tauri::AppHandle) -> tauri::window::Color {
+pub fn theme_backdrop(app: &tauri::AppHandle) -> tauri::window::Color {
     let dark = app
         .get_webview_window("main")
         .and_then(|window| window.theme().ok())
@@ -569,6 +569,10 @@ fn about_backdrop(app: &tauri::AppHandle) -> tauri::window::Color {
 #[tauri::command]
 pub async fn show_about(app: tauri::AppHandle) {
     if let Some(win) = app.get_webview_window("about") {
+        // The theme may have changed since this window was built, and the
+        // backdrop is only read at creation — refresh it or a reopen flashes
+        // the theme the window was created with
+        let _ = win.set_background_color(Some(theme_backdrop(&app)));
         let _ = win.show();
         let _ = win.set_focus();
         return;
@@ -586,7 +590,7 @@ pub async fn show_about(app: tauri::AppHandle) {
     .resizable(false)
     .skip_taskbar(true)
     .center()
-    .background_color(about_backdrop(&app))
+    .background_color(theme_backdrop(&app))
     .visible(false)
     .on_page_load(|window, payload| {
         if payload.event() == tauri::webview::PageLoadEvent::Finished {
