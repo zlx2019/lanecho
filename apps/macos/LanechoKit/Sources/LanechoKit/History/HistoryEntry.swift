@@ -153,12 +153,15 @@ func sortedEntries(_ entries: [HistoryEntry], sort: String) -> [HistoryEntry] {
 /// Text preview: the first line truncated to 80 scalars (display only; the
 /// storage layer keeps the text byte-for-byte). The ellipsis is decided by
 /// comparing byte lengths, matching Rust's preview.len() < text.len()
+///
+/// The line break scan MUST run on unicode scalars, not Characters: "\r\n" is
+/// a single grapheme cluster, so a Character-level firstIndex(of: "\n") never
+/// matches in CRLF text (exactly what Windows peers sync over) and the whole
+/// multi-line prefix would leak into the preview
 public func previewText(_ text: String) -> String {
-    var firstLine = text[..<(text.firstIndex(of: "\n") ?? text.endIndex)]
-    if firstLine.hasSuffix("\r") {
-        firstLine = firstLine.dropLast()
-    }
-    let preview = String(String.UnicodeScalarView(firstLine.unicodeScalars.prefix(80)))
+    let scalars = text.unicodeScalars
+    let lineEnd = scalars.firstIndex(where: CharacterSet.newlines.contains) ?? scalars.endIndex
+    let preview = String(String.UnicodeScalarView(scalars[..<lineEnd].prefix(80)))
     return preview.utf8.count < text.utf8.count ? preview + "…" : preview
 }
 

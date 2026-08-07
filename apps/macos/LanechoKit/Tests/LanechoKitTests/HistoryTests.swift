@@ -163,6 +163,18 @@ private func recordText(
     #expect(await store.list(sort: "recent").first?.preview == "Café first line…")
 }
 
+/// Preview cuts at every line-break flavor. The CRLF case is the regression
+/// guard: "\r\n" is a single grapheme cluster, so a Character-level
+/// firstIndex(of: "\n") never matched in text synced from Windows peers and
+/// the multi-line prefix leaked into the panel row
+@Test func previewCutsAtEveryLineBreakFlavor() {
+    #expect(previewText("first\r\nsecond\r\nthird") == "first…")
+    #expect(previewText("first\rsecond") == "first…")
+    #expect(previewText("first\u{2028}second") == "first…")
+    #expect(previewText("first\nsecond") == "first…")
+    #expect(previewText("no break") == "no break")
+}
+
 /// Image records: the blob is content-addressed on disk, restores at the
 /// original resolution, and deleting the entry reclaims it
 @Test func imageBlobRoundtripAndDelete() async throws {
