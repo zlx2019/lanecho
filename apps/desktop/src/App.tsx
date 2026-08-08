@@ -195,6 +195,17 @@ export default function App() {
     return () => observer.disconnect();
   }, []);
 
+  // Tab switches replay a light fade on the content area, so the swap does
+  // not read as a hard cut (restart by resetting the animation and forcing
+  // one reflow; a keyed remount would detach the ResizeObserver above)
+  useEffect(() => {
+    const content = contentRef.current;
+    if (!content) return;
+    content.style.animation = "none";
+    void content.offsetHeight;
+    content.style.animation = "";
+  }, [tab]);
+
   /** Toggle settings: persisted the moment they change (all three toggles
    *  share this semantic, matching the tray's behaviour) */
   const patchSettings = (patch: Partial<Settings>) => {
@@ -320,7 +331,7 @@ export default function App() {
       </nav>
 
       <main ref={mainRef} className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
-        <div ref={contentRef}>
+        <div ref={contentRef} className="anim-fade-in">
           {/* General tab: name / language / theme / launch at login */}
           {tab === "general" && (
             <div className="rounded-xl border border-line bg-panel px-4 py-3">

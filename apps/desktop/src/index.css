@@ -75,9 +75,20 @@ body {
   overflow: hidden;
   background: var(--color-abyss);
   color: var(--color-fog);
+  /* Latin fonts first, CJK after: the system UI face renders Latin and
+     digits (SF on macOS, Segoe UI on Windows — YaHei's Latin glyphs read
+     poorly), and CJK text falls through to PingFang / YaHei as before.
+     Explicit names, never a leading system-ui: on Chinese-locale Windows
+     system-ui *is* YaHei, which defeats the whole reordering; the two
+     Apple-only names are unknown on Windows and skipped at zero cost, and
+     "Segoe UI Variable Text" must be spelled out (the bare family name does
+     not resolve; Win10 falls through to plain Segoe UI) */
   font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI",
     "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC",
-    system-ui, sans-serif;
+    sans-serif;
+  /* Fixed-width digits everywhere: counters and timestamps must not wobble */
+  font-variant-numeric: tabular-nums;
   transition: background 0.3s;
   user-select: none;
   -webkit-user-select: none;
@@ -124,6 +135,21 @@ textarea {
   }
 }
 
+/* Panel entrance (Fluent fast-invoke numbers: 167ms, extreme-friction
+   deceleration). Replayed on every open by HistoryPanel; while the document
+   is hidden the root is parked at this animation's first frame, so the frame
+   the window re-appears with never flashes fully opaque before restarting. */
+@keyframes panel-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .anim-fade-up {
   animation: fade-up 0.22s ease-out both;
 }
@@ -132,6 +158,19 @@ textarea {
 }
 .anim-breathe {
   animation: breathe 2.4s ease-in-out infinite;
+}
+.anim-panel-enter {
+  animation: panel-enter 0.167s cubic-bezier(0, 0, 0, 1) both;
+}
+
+/* Honour the system's reduced-motion preference across every animation */
+@media (prefers-reduced-motion: reduce) {
+  .anim-fade-up,
+  .anim-fade-in,
+  .anim-breathe,
+  .anim-panel-enter {
+    animation: none;
+  }
 }
 
 .gauge-label {
@@ -142,13 +181,25 @@ textarea {
   color: var(--color-mist);
 }
 
+/* Overlay-feeling scrollbars: invisible at rest, a slim thumb fades in while
+   the scroller is hovered (classic Chromium scrollbars turn permanent the
+   moment they are styled — especially jarring on Windows, where they also
+   used to eat 8px of row width; pair with scrollbar-gutter on the panel
+   list). Do not mix in scrollbar-width/scrollbar-color: either of those
+   makes Chromium ignore the whole ::-webkit-scrollbar suite. */
 *::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 *::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+}
+*:hover::-webkit-scrollbar-thumb {
   background: var(--color-line-2);
-  border-radius: 4px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--color-faint);
 }
 *::-webkit-scrollbar-track {
   background: transparent;

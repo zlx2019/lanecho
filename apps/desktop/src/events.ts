@@ -22,8 +22,19 @@ export const EVENTS = {
   HISTORY_CHANGED: "history-changed",
   /** Incognito mode changed — echoes a tray toggle back (payload: boolean) */
   INCOGNITO_STATE: "incognito-changed",
+  /** The panel was hidden (all hide paths funnel through Rust's
+   *  hide_panel_impl), no payload; the panel parks its entrance animation on
+   *  it — Windows does not reliably deliver visibilitychange to a hidden
+   *  WebView2, so the park needs a Rust-side signal */
+  PANEL_HIDDEN: "panel-hidden",
   /** Panel → preview card push of the highlighted entry (payload:
    *  HistoryEntryDto); a frontend-only window-to-window event (emitTo) that
    *  never goes through bridge.rs and has no Rust-side counterpart */
   PREVIEW_ENTRY: "preview-entry",
+  /** Panel → preview card page-scroll request (payload: 1 = down, -1 = up);
+   *  frontend-only, like PREVIEW_ENTRY. PgUp/PgDn read a clipped card from
+   *  the panel keyboard — on Windows the card's cursor pass-through can never
+   *  be taken back (tao re-runs ShowWindow on any flag change while visible),
+   *  so the wheel cannot reach it and the keyboard is the only way */
+  PREVIEW_SCROLL: "preview-scroll",
 } as const;

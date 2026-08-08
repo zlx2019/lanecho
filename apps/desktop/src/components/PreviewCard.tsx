@@ -30,6 +30,10 @@ import type { HistoryEntryDto, PreviewPayload } from "../types";
 /** Whether we are running inside the Tauri runtime */
 const hasTauri = "__TAURI_INTERNALS__" in window;
 
+/** Windows: the vibrancy backdrop comes with a DWM-clipped 8px window shape
+ *  and the CSS radius has to match (see HistoryPanel) */
+const IS_WINDOWS = navigator.userAgent.includes("Windows");
+
 /** Text render limit (characters): the truncation itself happens Rust-side
  *  (commands' PREVIEW_TEXT_MAX_CHARS, the two must stay equal); this constant
  *  only feeds the truncation notice */
@@ -79,15 +83,47 @@ export function PreviewCard() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Switch to the translucent variables when vibrancy is active (same rule as
-  // HistoryPanel)
+  // HistoryPanel; the state mirror drives the Windows corner alignment)
+  const [vibrancy, setVibrancy] = useState(false);
   useEffect(() => {
     if (!hasTauri) return;
     api
       .windowEffectsActive()
       .then((active) => {
         if (active) document.documentElement.dataset.vibrancy = "1";
+        setVibrancy(active);
       })
       .catch(console.error);
+  }, []);
+  // The DWM-clipped window shape is 8px on Windows; the CSS radius follows it
+  const radius = vibrancy && IS_WINDOWS ? "rounded-lg" : "rounded-xl";
+
+  // Page-scroll requests from the panel keyboard (PgUp/PgDn): the only way to
+  // read a clipped card on Windows, where cursor pass-through is frozen and
+  // the wheel can never reach this window
+  useEffect(() => {
+    if (!hasTauri) return;
+    let alive = true;
+    let unsub: UnlistenFn | null = null;
+    listen<number>(EVENTS.PREVIEW_SCROLL, (e) => {
+      if (!alive) return;
+      const scroller = scrollRef.current;
+      if (scroller) {
+        scroller.scrollBy({ top: e.payload * scroller.clientHeight * 0.8, behavior: "smooth" });
+      }
+    })
+      .then((fn) => {
+        if (alive) {
+          unsub = fn;
+        } else {
+          fn();
+        }
+      })
+      .catch(console.error);
+    return () => {
+      alive = false;
+      unsub?.();
+    };
   }, []);
 
   // Receive the highlighted entry pushed by the panel (language aligns from
@@ -242,7 +278,7 @@ export function PreviewCard() {
   // Nothing yet (no first push since startup): paint an empty backdrop, the
   // window is hidden at this point anyway
   if (!entry) {
-    return <div className="h-screen rounded-xl border border-line-2 bg-panel" />;
+    return <div className={`h-screen border border-line-2 bg-panel ${radius}`} />;
   }
 
   // Fall back to preview when the text fetch failed (the entry was just
@@ -251,7 +287,7 @@ export function PreviewCard() {
   const truncated = entry.kind === "text" && textTruncated;
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden rounded-xl border border-line-2 bg-panel">
+    <div className={`flex h-screen flex-col overflow-hidden border border-line-2 bg-panel ${radius}`}>
       {/* Content area: full text / the image / the list of file paths (the
           inner div is there so the natural height can be measured). When the
           content exceeds the cap the window takes back mouse pass-through and

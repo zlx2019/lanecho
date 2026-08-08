@@ -34,6 +34,11 @@ import { Button } from "./ModalShell";
 /** Whether we are running inside the Tauri runtime */
 const hasTauri = "__TAURI_INTERNALS__" in window;
 
+/** Windows: with the vibrancy backdrop active the DWM clips the window shape
+ *  to an 8px radius, and the CSS radius has to match it (12px CSS corners
+ *  against an 8px window shape leave a crescent of bare material) */
+const IS_WINDOWS = navigator.userAgent.includes("Windows");
+
 /** Fallback slot-badge modifier before settings load (default CmdOrCtrl:
  *  ⌘ on macOS, Ctrl+ elsewhere) */
 const DEFAULT_SLOT_MOD = slotModLabel("CmdOrCtrl");
@@ -76,6 +81,9 @@ export function HistoryPanel() {
   // Clear-history confirmation (an in-panel overlay, not a native dialog —
   // a native one steals focus and the panel hides itself)
   const [clearAsking, setClearAsking] = useState(false);
+  // Vibrancy state (drives the Windows corner-radius alignment; the
+  // translucent palette itself rides the [data-vibrancy] attribute)
+  const [vibrancy, setVibrancy] = useState(false);
   // Set of matching entry IDs (null = no filter; full-text matching happens
   // Rust-side, see the search effect)
   const [matchIds, setMatchIds] = useState<Set<string> | null>(null);
@@ -83,6 +91,8 @@ export function HistoryPanel() {
   // on every open)
   const [renderBase, setRenderBase] = useState(RENDER_CHUNK_ROWS);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Panel root, for replaying the entrance animation on every open
+  const rootRef = useRef<HTMLDivElement>(null);
   // Highlight source (keyboard / mouse) and the highlighted row element: only
   // keyboard navigation scrolls
   const inputSourceRef = useRef<"keyboard" | "mouse">("keyboard");
@@ -131,9 +141,56 @@ export function HistoryPanel() {
       .windowEffectsActive()
       .then((active) => {
         if (active) document.documentElement.dataset.vibrancy = "1";
+        setVibrancy(active);
       })
       .catch(console.error);
   }, []);
+
+  /** Park the root at the entrance animation's first frame (transparent, 6px
+   *  down). A hidden webview does not render, so the parked styles are simply
+   *  what the next show presents — the re-appearing frame is already the
+   *  animation start. Idempotent; `data-parked` arms the replay. */
+  const parkEntrance = useCallback(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    root.style.animation = "none";
+    root.style.opacity = "0";
+    root.style.transform = "translateY(6px)";
+    root.dataset.parked = "1";
+  }, []);
+
+  /** Replay the entrance animation — but only from a parked first frame.
+   *  The fuse matters: without a park, the content is already at full
+   *  presence when focus lands, and restarting the animation snaps it
+   *  transparent for a beat — on Windows (where the focus event trails the
+   *  first presented frame by a wide margin) that read as "the panel opens,
+   *  vanishes, opens again". No park, no animation, never a flash. */
+  const replayEntrance = useCallback(() => {
+    const root = rootRef.current;
+    if (!root || root.dataset.parked !== "1") return;
+    delete root.dataset.parked;
+    root.style.animation = "none";
+    void root.offsetHeight;
+    root.style.animation = "";
+    root.style.opacity = "";
+    root.style.transform = "";
+  }, []);
+
+  // Entrance choreography: park on every signal that the panel went away.
+  // The document mounts hidden at startup (park right away, so the very
+  // first open animates too); visibilitychange covers macOS; the Rust-side
+  // PANEL_HIDDEN event (emitted by hide_panel_impl, the funnel of every hide
+  // path) covers Windows, which does not reliably deliver visibilitychange
+  // to a hidden WebView2. Parking twice is harmless.
+  useEffect(() => {
+    if (!hasTauri) return;
+    parkEntrance();
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") parkEntrance();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [parkEntrance]);
 
   useEffect(() => {
     if (!hasTauri) return;
@@ -159,10 +216,13 @@ export function HistoryPanel() {
         if (document.visibilityState === "visible") reload();
       }),
     );
+    // Rust-side hide signal → park the entrance (see the choreography effect)
+    add(listen(EVENTS.PANEL_HIDDEN, parkEntrance));
     // Every open (window focus) resets state: refresh the list, clear the
     // search, focus the input
     add(
       getCurrentWindow().listen("tauri://focus", () => {
+        replayEntrance();
         reload();
         setQuery("");
         setMatchIds(null);
@@ -186,7 +246,7 @@ export function HistoryPanel() {
       alive = false;
       unsubs.forEach((unsub) => unsub());
     };
-  }, [reload]);
+  }, [reload, replayEntrance, parkEntrance]);
 
   const loaded = useMemo(() => entries ?? [], [entries]);
 
@@ -412,12 +472,21 @@ export function HistoryPanel() {
       setSelected((s) => (jump ? 0 : Math.max(s - 1, 0)));
     } else if (e.key === "Enter" && filtered[highlight]) {
       void choose(filtered[highlight]);
+    } else if (e.key === "PageDown" || e.key === "PageUp") {
+      // Page through a clipped preview card from here: on Windows the card
+      // can never take the wheel (its cursor pass-through is frozen, see
+      // EVENTS.PREVIEW_SCROLL), and the keyboard route works everywhere
+      e.preventDefault();
+      void emitTo("preview", EVENTS.PREVIEW_SCROLL, e.key === "PageDown" ? 1 : -1);
     }
   };
 
   return (
     <div
-      className="relative flex h-screen flex-col overflow-hidden rounded-xl border border-line-2 bg-panel"
+      ref={rootRef}
+      className={`anim-panel-enter relative flex h-screen flex-col overflow-hidden border border-line-2 bg-panel ${
+        vibrancy && IS_WINDOWS ? "rounded-lg" : "rounded-xl"
+      }`}
       onKeyDown={onKeyDown}
       onMouseMove={onPanelMouseMove}
     >
@@ -443,7 +512,13 @@ export function HistoryPanel() {
 
       {/* Entry list (entries === null means loading: render blank rather than
           the empty-state copy) */}
-      <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1.5">
+      {/* scrollbar-gutter keeps the row width stable whether or not the
+          (classic, Windows) scrollbar is present; overlay scrollbars reserve
+          nothing, so macOS is unaffected */}
+      <div
+        ref={listRef}
+        className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1.5 [scrollbar-gutter:stable]"
+      >
         {entries === null ? null : filtered.length === 0 ? (
           <div className="px-4 py-10 text-center text-xs text-mist">
             {loaded.length === 0 ? t.history.empty : t.history.noMatch}

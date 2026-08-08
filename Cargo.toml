@@ -95,6 +95,11 @@ windows-sys = { version = "0.61", features = [
     # (core clipboard::frontapp)
     "Win32_UI_Shell",
     "Win32_Graphics_Gdi",
+    # DwmSetWindowAttribute (Win11 flyout backdrop + rounded window shape) and
+    # RtlGetVersion (true build number for the 22523+ gate), desktop lib.rs
+    "Win32_Graphics_Dwm",
+    "Win32_System_SystemInformation",
+    "Wdk_System_SystemServices",
 ] }
 
 [workspace.lints.rust]

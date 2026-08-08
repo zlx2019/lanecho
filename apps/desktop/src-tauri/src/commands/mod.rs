@@ -824,16 +824,33 @@ pub fn get_incognito(state: State<'_, AppState>) -> bool {
     state.incognito.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// Whether the panel's vibrancy material is active; the frontend switches its
-/// translucent background variables on this
+/// Whether the floating windows' vibrancy material is active; the frontend
+/// switches its translucent background variables (and, on Windows, the 8px
+/// corner radius matching the DWM window shape) on this
 ///
-/// Configured windowEffects give no confirmation, so this is decided by platform
-/// capability: always available on macOS (10.15 baseline); other platforms
-/// declare no material in the config and keep an opaque background, which stops
-/// a transparent window from showing the desktop through.
+/// macOS is config-level windowEffects and always active (10.15 baseline).
+/// Windows is runtime state: setup sets it only once the Win11 backdrop has
+/// landed (see lib.rs flyout_chrome), so older builds keep an opaque
+/// background and a transparent window never shows the desktop through.
+/// Linux declares no material and stays opaque.
 #[tauri::command]
-pub fn window_effects_active() -> bool {
-    cfg!(target_os = "macos")
+pub fn window_effects_active(state: State<'_, AppState>) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = &state;
+        true
+    }
+    #[cfg(windows)]
+    {
+        state
+            .window_effects
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
+    {
+        let _ = &state;
+        false
+    }
 }
 
 /// Slot hotkeys that failed to register (the N in Alt+N); the settings page
