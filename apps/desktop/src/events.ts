@@ -26,4 +26,10 @@ export const EVENTS = {
    *  HistoryEntryDto); a frontend-only window-to-window event (emitTo) that
    *  never goes through bridge.rs and has no Rust-side counterpart */
   PREVIEW_ENTRY: "preview-entry",
+  /** Panel → preview card page-scroll request (payload: 1 = down, -1 = up);
+   *  frontend-only, like PREVIEW_ENTRY. PgUp/PgDn read a clipped card from
+   *  the panel keyboard — on Windows the card's cursor pass-through can never
+   *  be taken back (tao re-runs ShowWindow on any flag change while visible),
+   *  so the wheel cannot reach it and the keyboard is the only way */
+  PREVIEW_SCROLL: "preview-scroll",
 } as const;

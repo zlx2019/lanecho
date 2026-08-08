@@ -53,6 +53,18 @@ pub struct AppState {
     /// engine holds one); rebuilt by save_settings when the ignore object
     /// changes
     pub ignore_rules: Arc<Mutex<crate::ignore::IgnoreRules>>,
+    /// Whether native window effects are active on the floating windows.
+    /// macOS is config-level vibrancy and reports true unconditionally; on
+    /// Windows setup sets this once the Win11 backdrop has landed (never on
+    /// older builds, so the frontend keeps the opaque palette); Linux never
+    #[cfg_attr(
+        not(windows),
+        expect(
+            dead_code,
+            reason = "仅 Windows 的 setup 与查询命令读取; 其余平台按常量回答"
+        )
+    )]
+    pub window_effects: AtomicBool,
     /// Engine data directory, where settings.json / identity.json /
     /// paired.json live
     pub data_dir: PathBuf,

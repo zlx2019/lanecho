@@ -114,9 +114,28 @@ pub fn run() {
             // paints — on a transparent window they render as black corners,
             // so the shadow has to go (macOS keeps its native NSWindow shadow)
             #[cfg(windows)]
-            for label in ["panel", "preview"] {
-                if let Some(window) = app.get_webview_window(label) {
-                    let _ = window.set_shadow(false);
+            {
+                let effects = flyout_chrome::backdrop_supported();
+                for label in ["panel", "preview"] {
+                    if let Some(window) = app.get_webview_window(label) {
+                        let _ = window.set_shadow(false);
+                        // Win11 22523+: system acrylic backdrop + rounded
+                        // window shape (the preview never truly hides, so
+                        // once here is enough; the panel re-applies on show)
+                        if effects {
+                            flyout_chrome::apply(&window);
+                        }
+                    }
+                }
+                if effects {
+                    app.state::<AppState>()
+                        .window_effects
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                }
+                // The panel truly hides and plays its own CSS entrance on
+                // show; the system show/hide transition would stack on top
+                if let Some(panel) = app.get_webview_window("panel") {
+                    flyout_chrome::disable_system_transitions(&panel);
                 }
             }
             // Park the panel before it is ever shown: the first open would
@@ -436,6 +455,99 @@ fn park_window(window: &tauri::WebviewWindow) {
     ));
 }
 
+/// Windows 11 flyout chrome for the floating windows (panel / preview card):
+/// the system acrylic backdrop plus the system-rounded window shape — the
+/// pair every Win11 tray flyout carries, and the Windows counterpart of the
+/// macOS `windowEffects` material + radius.
+///
+/// Only the documented route is used (`DWMWA_SYSTEMBACKDROP_TYPE`, build
+/// 22523+); older systems keep the opaque look, and the frontend only
+/// switches to the translucent palette when `window_effects_active` confirms
+/// the backdrop landed. The two attributes must go together: the backdrop is
+/// a whole-window material that would fill the four corners outside the
+/// CSS-drawn radius, so the DWM corner preference clips the window shape
+/// instead. Every call here is a plain hwnd attribute write — none of it
+/// goes near tao's window flags, whose apply_diff re-runs ShowWindow on any
+/// flag change while the window is visible.
+#[cfg(windows)]
+mod flyout_chrome {
+    use windows_sys::Wdk::System::SystemServices::RtlGetVersion;
+    use windows_sys::Win32::Graphics::Dwm::{
+        DWMSBT_TRANSIENTWINDOW, DWMWA_SYSTEMBACKDROP_TYPE, DWMWA_TRANSITIONS_FORCEDISABLED,
+        DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmSetWindowAttribute,
+    };
+    use windows_sys::Win32::System::SystemInformation::OSVERSIONINFOW;
+
+    /// True Windows build number (RtlGetVersion is exempt from the
+    /// compatibility shims GetVersionEx answers through); 0 when the query
+    /// fails, which fails the support gate below
+    #[expect(
+        unsafe_code,
+        reason = "RtlGetVersion 为只读版本查询, 结构体由本函数栈上分配并写入大小"
+    )]
+    fn build_number() -> u32 {
+        unsafe {
+            let mut info: OSVERSIONINFOW = std::mem::zeroed();
+            info.dwOSVersionInfoSize = std::mem::size_of::<OSVERSIONINFOW>() as u32;
+            if RtlGetVersion(&mut info) == 0 {
+                info.dwBuildNumber
+            } else {
+                0
+            }
+        }
+    }
+
+    /// Whether this system carries the documented backdrop API (Win11 22523+)
+    pub fn backdrop_supported() -> bool {
+        build_number() >= 22523
+    }
+
+    /// One DWM window attribute write; false when the hwnd cannot be read or
+    /// DWM rejects the value
+    #[expect(
+        unsafe_code,
+        reason = "DwmSetWindowAttribute 为窗口属性写入, 值由本函数栈上持有, 生命周期覆盖调用"
+    )]
+    fn set_attribute(window: &tauri::WebviewWindow, attribute: u32, value: i32) -> bool {
+        let Ok(hwnd) = window.hwnd() else {
+            return false;
+        };
+        let ok = unsafe {
+            DwmSetWindowAttribute(
+                hwnd.0,
+                attribute,
+                std::ptr::from_ref(&value).cast(),
+                std::mem::size_of::<i32>() as u32,
+            )
+        };
+        ok == 0
+    }
+
+    /// Applies the acrylic backdrop + rounded window shape; true when the
+    /// backdrop landed (the corner clip is best-effort on top of it).
+    ///
+    /// Re-run this on every show of a window that truly hides: a hidden
+    /// window's backdrop silently degrades otherwise (tauri#12854). The
+    /// write is idempotent and costs microseconds.
+    pub fn apply(window: &tauri::WebviewWindow) -> bool {
+        let backdrop = set_attribute(
+            window,
+            DWMWA_SYSTEMBACKDROP_TYPE as u32,
+            DWMSBT_TRANSIENTWINDOW,
+        );
+        if backdrop {
+            set_attribute(window, DWMWA_WINDOW_CORNER_PREFERENCE as u32, DWMWCP_ROUND);
+        }
+        backdrop
+    }
+
+    /// Turns the system-level show/hide window transition off: the panel
+    /// plays its own CSS entrance, and the two would stack (tao#327)
+    pub fn disable_system_transitions(window: &tauri::WebviewWindow) {
+        set_attribute(window, DWMWA_TRANSITIONS_FORCEDISABLED as u32, 1);
+    }
+}
+
 /// Parks the hidden panel off screen (see `PANEL_PARKING`); every path that
 /// hides the panel has to call this, or the next open flashes a frame at the
 /// spot it was last shown
@@ -599,6 +711,17 @@ fn show_panel(app: &tauri::AppHandle, anchor: PanelAnchor) {
         // set on every open — without this fallback a failed cursor read
         // would leave it parked where it can never be seen again
         let _ = panel.set_position(tauri::PhysicalPosition::new(40, 40));
+    }
+    // Win11 backdrop: re-applied before every show — the backdrop of a truly
+    // hidden window silently degrades (tauri#12854); a plain idempotent hwnd
+    // write, nowhere near tao's window flags
+    #[cfg(windows)]
+    if app
+        .state::<AppState>()
+        .window_effects
+        .load(std::sync::atomic::Ordering::Relaxed)
+    {
+        flyout_chrome::apply(&panel);
     }
     let _ = panel.show();
     let _ = panel.set_focus();

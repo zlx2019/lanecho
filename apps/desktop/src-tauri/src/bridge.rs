@@ -198,6 +198,7 @@ pub async fn start_engine(app: tauri::AppHandle, data_dir: PathBuf) -> anyhow::R
         hotkeys: Mutex::new(crate::state::ParsedHotkeys::default()),
         restore_hash,
         ignore_rules,
+        window_effects: std::sync::atomic::AtomicBool::new(false),
         data_dir,
         history_worker: Mutex::new(Some(history_worker)),
     })
