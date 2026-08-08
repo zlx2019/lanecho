@@ -146,36 +146,51 @@ export function HistoryPanel() {
       .catch(console.error);
   }, []);
 
-  // Entrance choreography. The panel window truly hides, and a hidden webview
-  // does not render — styles set now are only presented on the next show. So
-  // on hidden the root is parked at the entrance animation's first frame
-  // (transparent, 6px down): the frame the window re-appears with is already
-  // the animation start, never a fully-opaque flash followed by a restart.
-  // The focus listener below then replays the animation to full presence.
-  useEffect(() => {
-    const onVisibility = () => {
-      const root = rootRef.current;
-      if (!root || document.visibilityState !== "hidden") return;
-      root.style.animation = "none";
-      root.style.opacity = "0";
-      root.style.transform = "translateY(6px)";
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => document.removeEventListener("visibilitychange", onVisibility);
-  }, []);
-
-  /** Replay the entrance animation from its first frame (see the
-   *  visibilitychange effect): clear everything, force one reflow so the
-   *  animation restarts, then hand presentation back to the keyframes */
-  const replayEntrance = useCallback(() => {
+  /** Park the root at the entrance animation's first frame (transparent, 6px
+   *  down). A hidden webview does not render, so the parked styles are simply
+   *  what the next show presents — the re-appearing frame is already the
+   *  animation start. Idempotent; `data-parked` arms the replay. */
+  const parkEntrance = useCallback(() => {
     const root = rootRef.current;
     if (!root) return;
+    root.style.animation = "none";
+    root.style.opacity = "0";
+    root.style.transform = "translateY(6px)";
+    root.dataset.parked = "1";
+  }, []);
+
+  /** Replay the entrance animation — but only from a parked first frame.
+   *  The fuse matters: without a park, the content is already at full
+   *  presence when focus lands, and restarting the animation snaps it
+   *  transparent for a beat — on Windows (where the focus event trails the
+   *  first presented frame by a wide margin) that read as "the panel opens,
+   *  vanishes, opens again". No park, no animation, never a flash. */
+  const replayEntrance = useCallback(() => {
+    const root = rootRef.current;
+    if (!root || root.dataset.parked !== "1") return;
+    delete root.dataset.parked;
     root.style.animation = "none";
     void root.offsetHeight;
     root.style.animation = "";
     root.style.opacity = "";
     root.style.transform = "";
   }, []);
+
+  // Entrance choreography: park on every signal that the panel went away.
+  // The document mounts hidden at startup (park right away, so the very
+  // first open animates too); visibilitychange covers macOS; the Rust-side
+  // PANEL_HIDDEN event (emitted by hide_panel_impl, the funnel of every hide
+  // path) covers Windows, which does not reliably deliver visibilitychange
+  // to a hidden WebView2. Parking twice is harmless.
+  useEffect(() => {
+    if (!hasTauri) return;
+    parkEntrance();
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") parkEntrance();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [parkEntrance]);
 
   useEffect(() => {
     if (!hasTauri) return;
@@ -201,6 +216,8 @@ export function HistoryPanel() {
         if (document.visibilityState === "visible") reload();
       }),
     );
+    // Rust-side hide signal → park the entrance (see the choreography effect)
+    add(listen(EVENTS.PANEL_HIDDEN, parkEntrance));
     // Every open (window focus) resets state: refresh the list, clear the
     // search, focus the input
     add(
@@ -229,7 +246,7 @@ export function HistoryPanel() {
       alive = false;
       unsubs.forEach((unsub) => unsub());
     };
-  }, [reload, replayEntrance]);
+  }, [reload, replayEntrance, parkEntrance]);
 
   const loaded = useMemo(() => entries ?? [], [entries]);
 

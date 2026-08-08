@@ -22,6 +22,11 @@ export const EVENTS = {
   HISTORY_CHANGED: "history-changed",
   /** Incognito mode changed — echoes a tray toggle back (payload: boolean) */
   INCOGNITO_STATE: "incognito-changed",
+  /** The panel was hidden (all hide paths funnel through Rust's
+   *  hide_panel_impl), no payload; the panel parks its entrance animation on
+   *  it — Windows does not reliably deliver visibilitychange to a hidden
+   *  WebView2, so the park needs a Rust-side signal */
+  PANEL_HIDDEN: "panel-hidden",
   /** Panel → preview card push of the highlighted entry (payload:
    *  HistoryEntryDto); a frontend-only window-to-window event (emitTo) that
    *  never goes through bridge.rs and has no Rust-side counterpart */

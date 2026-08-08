@@ -753,6 +753,16 @@ pub fn hide_panel_impl(app: &tauri::AppHandle) {
         let _ = panel.hide();
     }
     park_panel(app);
+    // Tell the panel document it was hidden, so it parks its root at the
+    // entrance animation's first frame. This must be a Rust-side event:
+    // Windows does not reliably deliver visibilitychange to a hidden
+    // WebView2, and without the park the next open presented one full frame
+    // before the focus-driven replay snapped it transparent — read by the
+    // user as "opens, vanishes, opens again"
+    {
+        use tauri::Emitter;
+        let _ = app.emit_to("panel", bridge::events::PANEL_HIDDEN, ());
+    }
     #[cfg(target_os = "macos")]
     {
         let any_visible = YIELD_BLOCKING_WINDOWS.iter().any(|label| {

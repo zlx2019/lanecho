@@ -51,6 +51,14 @@ pub mod events {
     pub const HISTORY_CHANGED: &str = "history-changed";
     /// Incognito mode changed (tray toggle echo), payload: bool
     pub const INCOGNITO_STATE: &str = "incognito-changed";
+    /// The panel was hidden (every hide path funnels through
+    /// hide_panel_impl), no payload. The panel parks its root at the
+    /// entrance animation's first frame on this signal — a Rust-side event
+    /// reaches the webview whether or not the platform delivers
+    /// visibilitychange to a hidden document (Windows does not, reliably),
+    /// and JS keeps running in a hidden WebView so the parked styles are
+    /// simply presented with the next show
+    pub const PANEL_HIDDEN: &str = "panel-hidden";
 }
 
 /// Peer info DTO (shared by the peer-up / pair-requested / paired events and
