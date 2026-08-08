@@ -147,66 +147,102 @@ pub fn frontmost_app_id() -> Option<String> {
 /// Callers cache by application name and fetch once per application (expanding
 /// the TIFF costs milliseconds, so this must stay off hot paths)
 #[cfg(target_os = "macos")]
-#[expect(
-    unsafe_code,
-    reason = "representationUsingType:properties: 仅因泛型字典参数被 objc2 标记 unsafe, 此处传空字典且键类型正确, 无内存安全影响"
-)]
 pub fn frontmost_app_icon_png() -> Option<Vec<u8>> {
-    use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep};
-
     objc2::rc::autoreleasepool(|_| {
         let workspace = objc2_app_kit::NSWorkspace::sharedWorkspace();
         let app = workspace.frontmostApplication()?;
         if app.processIdentifier() == std::process::id() as i32 {
             return None;
         }
-        // icon is a multi-size NSImage (16/32/128/256/512); after expanding
-        // the TIFF, pick the bitmap representation closest to 32px — the
-        // preview card renders it at 14px, so storing a large one only wastes
-        // cache
-        let tiff = app.icon()?.TIFFRepresentation()?;
-        let reps = NSBitmapImageRep::imageRepsWithData(&tiff);
-        let mut best: Option<(isize, objc2::rc::Retained<NSBitmapImageRep>)> = None;
-        for rep in reps.iter() {
-            let Ok(bitmap) = rep.downcast::<NSBitmapImageRep>() else {
-                continue;
-            };
-            let distance = (bitmap.pixelsWide() - 32).abs();
-            if best.as_ref().is_none_or(|(d, _)| distance < *d) {
-                best = Some((distance, bitmap));
-            }
-        }
-        let (_, bitmap) = best?;
-        let png = unsafe {
-            bitmap.representationUsingType_properties(
-                NSBitmapImageFileType::PNG,
-                &objc2_foundation::NSDictionary::new(),
-            )
-        }?;
-        Some(png.to_vec())
+        let icon = app.icon()?;
+        icon_png_32(&icon)
     })
+}
+
+/// Icon of an installed application looked up by bundle identifier (PNG
+/// bytes, the ~32px size): the image next to each row of the
+/// ignore-by-application list
+///
+/// Resolved live on every call — the list is short and a lookup costs
+/// milliseconds. None when no application with this identifier is installed
+/// (the frontend falls back to a generic glyph, the same as the native
+/// client).
+#[cfg(target_os = "macos")]
+pub fn app_icon_png_for_id(bundle_id: &str) -> Option<Vec<u8>> {
+    objc2::rc::autoreleasepool(|_| {
+        let workspace = objc2_app_kit::NSWorkspace::sharedWorkspace();
+        let id = objc2_foundation::NSString::from_str(bundle_id);
+        let url = workspace.URLForApplicationWithBundleIdentifier(&id)?;
+        // iconForFile never fails (unknown paths get the generic document
+        // icon), so a missing application must be caught at the URL lookup
+        let path = url.path()?;
+        icon_png_32(&workspace.iconForFile(&path))
+    })
+}
+
+/// Multi-size icon NSImage (16/32/128/256/512) → PNG bytes: after expanding
+/// the TIFF, pick the bitmap representation closest to 32px — the consumers
+/// render at 14~16px, so keeping a large one only wastes cache
+#[cfg(target_os = "macos")]
+#[expect(
+    unsafe_code,
+    reason = "representationUsingType:properties: 仅因泛型字典参数被 objc2 标记 unsafe, 此处传空字典且键类型正确, 无内存安全影响"
+)]
+fn icon_png_32(icon: &objc2_app_kit::NSImage) -> Option<Vec<u8>> {
+    use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep};
+
+    let tiff = icon.TIFFRepresentation()?;
+    let reps = NSBitmapImageRep::imageRepsWithData(&tiff);
+    let mut best: Option<(isize, objc2::rc::Retained<NSBitmapImageRep>)> = None;
+    for rep in reps.iter() {
+        let Ok(bitmap) = rep.downcast::<NSBitmapImageRep>() else {
+            continue;
+        };
+        let distance = (bitmap.pixelsWide() - 32).abs();
+        if best.as_ref().is_none_or(|(d, _)| distance < *d) {
+            best = Some((distance, bitmap));
+        }
+    }
+    let (_, bitmap) = best?;
+    let png = unsafe {
+        bitmap.representationUsingType_properties(
+            NSBitmapImageFileType::PNG,
+            &objc2_foundation::NSDictionary::new(),
+        )
+    }?;
+    Some(png.to_vec())
 }
 
 /// Icon of the frontmost application (PNG bytes, the system large size —
 /// 32px at 100% scale): the image next to the source application on the
 /// preview card
+#[cfg(windows)]
+pub fn frontmost_app_icon_png() -> Option<Vec<u8>> {
+    exe_icon_png(&frontmost_exe_path()?)
+}
+
+/// First icon resource of an executable (PNG bytes, the system large size —
+/// 32px at 100% scale)
 ///
 /// The chain is `ExtractIconExW` (the first icon resource of the executable,
 /// which is what Explorer shows) → `GetIconInfo` for the colour bitmap →
 /// `GetDIBits` for the raw BGRA pixels → PNG. Store applications whose
 /// executables sit under WindowsApps may refuse the resource read; the query
-/// then returns None and the preview card falls back to the plain name, the
-/// same as before this existed.
+/// then returns None and callers fall back to plain text.
+///
+/// Besides the frontmost query this also serves the ignore-by-application
+/// list: the picker holds the full executable path only at add time (the
+/// stored exe-name key cannot be resolved back to a path later), so the icon
+/// is extracted then and cached to disk.
 #[cfg(windows)]
 #[expect(
     unsafe_code,
     reason = "ExtractIconExW/GetIconInfo/GetDIBits 为只读查询; 图标与位图句柄在所有返回路径上都被释放, 像素缓冲由 Rust 侧分配并按尺寸校验"
 )]
-pub fn frontmost_app_icon_png() -> Option<Vec<u8>> {
+pub fn exe_icon_png(path: &str) -> Option<Vec<u8>> {
     use windows_sys::Win32::UI::Shell::ExtractIconExW;
     use windows_sys::Win32::UI::WindowsAndMessaging::DestroyIcon;
 
-    let path = frontmost_exe_path()?;
     let wide: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
     unsafe {
         let mut icon = std::ptr::null_mut();
@@ -371,6 +407,18 @@ mod tests {
         let bgra = vec![1u8, 2, 3, 0, 4, 5, 6, 0];
         let rgba = super::bgra_to_rgba(bgra);
         assert_eq!(rgba, vec![3, 2, 1, 0xff, 6, 5, 4, 0xff]);
+    }
+
+    /// The by-bundle-id lookup resolves an always-present system application
+    /// (Finder ships with every macOS) into a PNG payload, and an unknown
+    /// identifier yields None instead of erring
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn bundle_id_lookup_finds_finder() {
+        let png = super::app_icon_png_for_id("com.apple.finder")
+            .expect("Finder is installed on every macOS");
+        assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n", "the payload is a PNG");
+        assert!(super::app_icon_png_for_id("io.lanecho.no.such.app").is_none());
     }
 
     /// Smoke test: the queries must not panic, and a desktop session should

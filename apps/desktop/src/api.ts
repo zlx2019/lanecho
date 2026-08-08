@@ -62,6 +62,9 @@ export const api = {
   /** Source application icon as PNG (rejects when nothing is cached; callers
    *  just hide the icon) */
   appIconPng: (name: string) => invoke<ArrayBuffer>("app_icon_png", { name }),
+  /** Ignore-list application icon as PNG, keyed by the rule's matching id
+   *  (rejects when unavailable; callers fall back to a generic glyph) */
+  ignoredAppIconPng: (id: string) => invoke<ArrayBuffer>("ignored_app_icon_png", { id }),
   /** Preview card: show (called by the card itself once it has measured;
    *  height = the actual content height, and the window follows it) */
   showPreview: (anchorY: number | null, height: number) =>

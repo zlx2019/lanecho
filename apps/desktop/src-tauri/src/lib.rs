@@ -195,6 +195,7 @@ pub fn run() {
             commands::hide_panel,
             commands::history_image_png,
             commands::app_icon_png,
+            commands::ignored_app_icon_png,
             commands::show_preview,
             commands::hide_preview,
             commands::show_settings_window,
