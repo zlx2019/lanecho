@@ -140,11 +140,7 @@ async fn inject_text(node: &TestNode, text: &str, timestamp_ms: u64) {
     let content = ClipboardContent::Text(text.to_string());
     let hash = content.hash();
     node.clip_tx
-        .send(ClipboardEvent {
-            content,
-            hash,
-            timestamp_ms,
-        })
+        .send(ClipboardEvent::new(content, hash, timestamp_ms))
         .await
         .expect("注入剪贴板事件失败");
 }
@@ -370,6 +366,75 @@ async fn disabled_sender_does_not_broadcast() {
         saw_local_copied,
         "熔断只停同步, 本机复制事件仍应上报(历史需要)"
     );
+
+    a.engine.shutdown().await;
+    b.engine.shutdown().await;
+}
+
+/// Ignore verdict, sync leg: a suppress_broadcast event still emits
+/// LocalCopied (the history pipeline records as usual, the record flag stays
+/// clear) but never reaches the peer
+#[tokio::test]
+async fn suppress_broadcast_cuts_outbound_but_keeps_local_copied() {
+    let mut a = start_node(42638).await;
+    let mut b = start_node(42638).await;
+    establish_pair(&mut a, &mut b).await;
+
+    let content = ClipboardContent::Text("ignored for sync".to_string());
+    let hash = content.hash();
+    let mut event = ClipboardEvent::new(content, hash, now_ms());
+    event.suppress_broadcast = true;
+    a.clip_tx.send(event).await.expect("注入剪贴板事件失败");
+
+    assert_no_apply(&mut b.events, Duration::from_millis(800)).await;
+    let mut saw_local_copied = false;
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(300);
+    while let Ok(Some(event)) = tokio::time::timeout_at(deadline, a.events.recv()).await {
+        match event {
+            EngineEvent::SyncSent { .. } => panic!("忽略同步的事件不应发起同步"),
+            EngineEvent::LocalCopied {
+                suppress_record, ..
+            } => {
+                assert!(!suppress_record, "只忽略同步时不应携带跳过记录标志");
+                saw_local_copied = true;
+            }
+            _ => {}
+        }
+    }
+    assert!(saw_local_copied, "忽略同步只砍广播腿, LocalCopied 仍应上报");
+
+    a.engine.shutdown().await;
+    b.engine.shutdown().await;
+}
+
+/// Ignore verdict, record leg: a suppress_record event broadcasts as usual,
+/// and the flag rides LocalCopied for the shell's history pipeline to honor
+#[tokio::test]
+async fn suppress_record_rides_local_copied_but_still_broadcasts() {
+    let mut a = start_node(42639).await;
+    let mut b = start_node(42639).await;
+    establish_pair(&mut a, &mut b).await;
+
+    let content = ClipboardContent::Text("ignored for recording".to_string());
+    let hash = content.hash();
+    let mut event = ClipboardEvent::new(content, hash, now_ms());
+    event.suppress_record = true;
+    a.clip_tx.send(event).await.expect("注入剪贴板事件失败");
+
+    let flagged = wait_event(&mut a.events, |ev| match ev {
+        EngineEvent::LocalCopied {
+            suppress_record, ..
+        } => Some(*suppress_record),
+        _ => None,
+    })
+    .await;
+    assert!(flagged, "跳过记录标志必须随 LocalCopied 透传");
+    let applied = wait_event(&mut b.events, |ev| match ev {
+        EngineEvent::ApplyRemote { content, .. } => apply_text(content),
+        _ => None,
+    })
+    .await;
+    assert_eq!(applied, "ignored for recording", "忽略记录不影响同步");
 
     a.engine.shutdown().await;
     b.engine.shutdown().await;
@@ -732,11 +797,7 @@ async fn orphan_echo_expires_instead_of_swallowing_real_copy() {
 async fn inject_content(node: &TestNode, content: ClipboardContent, timestamp_ms: u64) {
     let hash = content.hash();
     node.clip_tx
-        .send(ClipboardEvent {
-            content,
-            hash,
-            timestamp_ms,
-        })
+        .send(ClipboardEvent::new(content, hash, timestamp_ms))
         .await
         .expect("注入剪贴板事件失败");
 }

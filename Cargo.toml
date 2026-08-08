@@ -42,6 +42,9 @@ rcgen = "0.14"
 mdns-sd = "0.20"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Ignore-rule regex matching (desktop); already in the lock as a transitive
+# dependency, made explicit with Zero's sign-off (2026-08-08)
+regex = "1"
 blake3 = "1"
 thiserror = "2"
 anyhow = "1"
@@ -66,6 +69,9 @@ objc2-foundation = { version = "0.3", features = [
     # prompt takes (see the desktop autopaste module)
     "NSObject",
     "NSValue",
+    # Resolving a picked .app into its bundle identifier for the ignore rules
+    # (desktop pick_ignored_app command)
+    "NSBundle",
 ] }
 objc2-app-kit = { version = "0.3", features = [
     "NSPasteboard",

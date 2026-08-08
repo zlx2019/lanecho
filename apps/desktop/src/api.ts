@@ -6,6 +6,7 @@ import type {
   DeviceDto,
   EntryTextDto,
   HistoryEntryDto,
+  IgnoredApp,
   PeerDto,
   SelfInfoDto,
   Settings,
@@ -94,6 +95,9 @@ export const api = {
   /** Slot hotkeys that failed to register (the N of Alt+N; the settings page
    *  reports them as taken) */
   getSlotHotkeyFailures: () => invoke<number[]>("get_slot_hotkey_failures"),
+  /** Pick an application through the system dialog and resolve it into an
+   *  ignore entry (null when the user cancels) */
+  pickIgnoredApp: () => invoke<IgnoredApp | null>("pick_ignored_app"),
   /** Whether auto-paste can work on this machine */
   autoPasteStatus: () => invoke<AutoPasteStatus>("auto_paste_status"),
   /** Ask for the permission auto-paste needs (macOS raises the system

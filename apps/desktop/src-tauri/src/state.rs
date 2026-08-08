@@ -49,6 +49,10 @@ pub struct AppState {
     /// to the paste target by then, and capturing would wipe the entry's
     /// original source application (this pairs with the bump retention rule)
     pub restore_hash: Arc<Mutex<Option<String>>>,
+    /// Compiled ignore rules (Arc because the ingest hop between watcher and
+    /// engine holds one); rebuilt by save_settings when the ignore object
+    /// changes
+    pub ignore_rules: Arc<Mutex<crate::ignore::IgnoreRules>>,
     /// Engine data directory, where settings.json / identity.json /
     /// paired.json live
     pub data_dir: PathBuf,

@@ -208,6 +208,9 @@ pub enum EngineEvent {
         hash: String,
         /// Copy timestamp (Unix milliseconds)
         timestamp_ms: u64,
+        /// Ignore-rule verdict riding through from the shell's ingest (see
+        /// ClipboardEvent): the history pipeline must skip this copy
+        suppress_record: bool,
     },
     /// A remote sync was accepted; the shell layer should write the content to
     /// the system clipboard
@@ -1242,8 +1245,11 @@ fn spawn_clipboard_pump(
             // Each of the three content kinds has its own sync path; the
             // history pipeline consumes LocalCopied for all of them. The
             // direction, type and cap checks run before the clone, so nothing
-            // large is copied for content that is going to be dropped anyway
-            let send = inner.send_enabled.load(Ordering::Relaxed);
+            // large is copied for content that is going to be dropped anyway.
+            // suppress_broadcast is the ignore-rule verdict: the LWW baseline
+            // above still advanced and LocalCopied still fires, only the
+            // outbound leg is cut
+            let send = inner.send_enabled.load(Ordering::Relaxed) && !event.suppress_broadcast;
             let outbound = match &event.content {
                 ClipboardContent::Text(text) if send && inner.sync_text.load(Ordering::Relaxed) => {
                     if text.len() > MAX_SYNC_TEXT_BYTES {
@@ -1278,6 +1284,7 @@ fn spawn_clipboard_pump(
                     content: event.content,
                     hash: event.hash,
                     timestamp_ms: event.timestamp_ms,
+                    suppress_record: event.suppress_record,
                 })
                 .await;
             match outbound {

@@ -41,10 +41,45 @@ export interface Settings {
   previewDelayMs: number;
   /** Paste automatically after an entry is chosen (macOS / Windows) */
   autoPaste: boolean;
-  /** Ignore rules (enforced by the native client for now; typed opaque here
-   *  so saves carry it through untouched — do not edit it from this UI yet) */
-  ignore?: unknown;
+  /** Ignore rules (shared shape with the native client) */
+  ignore: IgnoreSettings;
 }
+
+/** One ignored source application (bundle id on macOS, lowercased exe file
+ *  name on Windows; the name is display-only, frozen at add time) */
+export interface IgnoredApp {
+  id: string;
+  name: string;
+}
+
+/** Ignore rules: four kinds, each with its own "don't sync" / "don't record"
+ *  toggle pair (see the Rust IgnoreSettings for field semantics) */
+export interface IgnoreSettings {
+  apps: IgnoredApp[];
+  types: string[];
+  regexes: string[];
+  /** Raw editor text, one simplified .gitignore pattern per line */
+  filePatterns: string;
+  appsSync: boolean;
+  appsRecord: boolean;
+  typesSync: boolean;
+  typesRecord: boolean;
+  regexSync: boolean;
+  regexRecord: boolean;
+  filesSync: boolean;
+  filesRecord: boolean;
+}
+
+/** The preset type list (mirrors the backend default; the reset button
+ *  restores exactly this) */
+export const DEFAULT_IGNORE_TYPES: string[] = [
+  "de.petermaurer.TransientPasteboardType",
+  "org.nspasteboard.TransientType",
+  "org.nspasteboard.ConcealedType",
+  "com.agilebits.onepassword",
+  "net.antelle.keeweb",
+  "com.typeit4me.clipping",
+];
 
 /** Whether auto-paste can work here: `supported` is the platform, `permitted`
  *  the operating system permission (macOS Accessibility) */

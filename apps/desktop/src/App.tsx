@@ -13,6 +13,7 @@ import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
 import { EVENTS } from "./events";
 import { DeviceList } from "./components/DeviceList";
+import { IgnorePane } from "./components/IgnorePane";
 import { PairRequestModal } from "./components/PairRequestModal";
 import { Button, ToggleRow } from "./components/ModalShell";
 import { useLanecho } from "./hooks/useLanecho";
@@ -31,9 +32,10 @@ const LANGS: [Lang, string][] = [
 ];
 
 /** Settings tabs (general is the default; the order follows the flow of use:
- *  identity → find and pair devices → sync behaviour → storage → hotkeys) */
-type Tab = "general" | "devices" | "sync" | "storage" | "hotkeys";
-const TABS: Tab[] = ["general", "devices", "sync", "storage", "hotkeys"];
+ *  identity → find and pair devices → sync behaviour → storage → ignore
+ *  rules → hotkeys) */
+type Tab = "general" | "devices" | "sync" | "storage" | "ignore" | "hotkeys";
+const TABS: Tab[] = ["general", "devices", "sync", "storage", "ignore", "hotkeys"];
 
 /** Total vertical padding of the main area (kept in sync with main's py-4):
  *  used when computing the adaptive height */
@@ -557,6 +559,15 @@ export default function App() {
 
           {/* Hotkeys tab: the panel hotkey + direct paste from numbered
               slots */}
+          {/* Ignore tab: the four rule kinds (apps / types / regex / files) */}
+          {tab === "ignore" && settings && (
+            <IgnorePane
+              ignore={settings.ignore}
+              onChange={(next) => patchSettings({ ignore: next })}
+              onError={setTip}
+            />
+          )}
+
           {tab === "hotkeys" && (
             <div className="rounded-xl border border-line bg-panel px-4 py-3">
               <div className="gauge-label mb-1">{t.historySettings.panelHotkey}</div>

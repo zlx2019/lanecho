@@ -16,6 +16,7 @@ mod autopaste;
 mod bridge;
 mod commands;
 mod history;
+mod ignore;
 mod locale;
 mod settings;
 mod state;
@@ -212,6 +213,7 @@ pub fn run() {
             commands::request_auto_paste_permission,
             commands::window_effects_active,
             commands::get_slot_hotkey_failures,
+            commands::pick_ignored_app,
         ])
         .build(tauri::generate_context!())
         .expect("Failed to build Tauri application");
