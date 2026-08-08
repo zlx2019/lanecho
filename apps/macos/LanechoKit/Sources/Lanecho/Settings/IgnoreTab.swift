@@ -27,8 +27,12 @@ struct IgnoreTab: View {
     @State private var pane: IgnorePane = .apps
     /// Selected row (apps select by bundle id, types/regex by the value)
     @State private var selection: String?
-    /// Entry field for the types / regex panes (committed by + or return)
+    /// Inline entry row (types/regex panes): + appends an editable row at the
+    /// list tail, return commits it, escape cancels
+    @State private var adding = false
+    /// Text of the inline entry row
     @State private var draft = ""
+    @FocusState private var draftFocused: Bool
     /// Local editor text for the file pane, committed on blur (a TextEditor
     /// writing straight into settings would hit the disk on every keystroke)
     @State private var fileText = ""
@@ -45,6 +49,7 @@ struct IgnoreTab: View {
             .pickerStyle(.segmented)
             .labelsHidden()
             .onChange(of: pane) {
+                adding = false
                 draft = ""
                 selection = nil
             }
@@ -125,7 +130,7 @@ struct IgnoreTab: View {
 
     private func listPane(items: [String], showReset: Bool) -> some View {
         VStack(spacing: 0) {
-            scrollingList(isEmpty: items.isEmpty) {
+            scrollingList(isEmpty: items.isEmpty && !adding, revealTail: adding) {
                 ForEach(Array(items.enumerated()), id: \.element) { index, item in
                     if index > 0 {
                         SettingsDivider()
@@ -137,16 +142,17 @@ struct IgnoreTab: View {
                             .truncationMode(.middle)
                     }
                 }
+                if adding {
+                    if !items.isEmpty {
+                        SettingsDivider()
+                    }
+                    draftRow
+                }
             }
             SettingsDivider()
             HStack(spacing: 8) {
                 addRemoveButtons
-                TextField("", text: $draft)
-                    .labelsHidden()
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(.body, design: .monospaced))
-                    .controlSize(.small)
-                    .onSubmit(addAction)
+                Spacer()
                 if showReset {
                     Button(model.texts.ignoreReset) { model.resetIgnoredTypes() }
                         .controlSize(.small)
@@ -155,6 +161,45 @@ struct IgnoreTab: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
         }
+    }
+
+    /// The inline entry row appended at the list tail while adding
+    private var draftRow: some View {
+        TextField("", text: $draft)
+            .labelsHidden()
+            .textFieldStyle(.plain)
+            .font(.system(.body, design: .monospaced))
+            .focused($draftFocused)
+            .onSubmit(commitDraft)
+            .onExitCommand {
+                adding = false
+                draft = ""
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .onAppear { draftFocused = true }
+            .onChange(of: draftFocused) {
+                // Focus moving elsewhere commits what was typed (return
+                // semantics); escape already cleared `adding`, so a cancel
+                // never falls through to here
+                if !draftFocused && adding {
+                    commitDraft()
+                }
+            }
+    }
+
+    /// Commit the inline entry row (an empty draft just closes it)
+    private func commitDraft() {
+        let value = draft.trimmingCharacters(in: .whitespaces)
+        if !value.isEmpty {
+            switch pane {
+            case .types: model.addIgnoredType(value)
+            case .regex: model.addIgnoredRegex(value)
+            default: break
+            }
+        }
+        draft = ""
+        adding = false
     }
 
     // MARK: - Files (a gitignore-style text editor)
@@ -171,7 +216,7 @@ struct IgnoreTab: View {
     // MARK: - Shared pieces
 
     /// The +/− pair on the bottom edge (the classic list-editor control):
-    /// + adds (open panel / commits the entry field), − removes the selection
+    /// + adds (open panel / inline entry row), − removes the selection
     private var addRemoveButtons: some View {
         HStack(spacing: 0) {
             Button(action: addAction) {
@@ -179,7 +224,6 @@ struct IgnoreTab: View {
                     .frame(width: 24, height: 18)
                     .contentShape(Rectangle())
             }
-            .disabled(addDisabled)
             Divider()
                 .frame(height: 12)
             Button(action: removeSelected) {
@@ -197,27 +241,18 @@ struct IgnoreTab: View {
         )
     }
 
-    /// + on the entry-field panes only makes sense with something typed
-    private var addDisabled: Bool {
-        switch pane {
-        case .types, .regex:
-            draft.trimmingCharacters(in: .whitespaces).isEmpty
-        default:
-            false
-        }
-    }
-
     /// Add for the current pane
     private func addAction() {
         switch pane {
         case .apps:
             model.addIgnoredApp()
-        case .types:
-            model.addIgnoredType(draft)
-            draft = ""
-        case .regex:
-            model.addIgnoredRegex(draft)
-            draft = ""
+        case .types, .regex:
+            // Open the inline entry row; a second press just refocuses it
+            if adding {
+                draftFocused = true
+            } else {
+                adding = true
+            }
         case .files:
             break
         }
@@ -236,23 +271,35 @@ struct IgnoreTab: View {
     }
 
     /// Fixed-height scroll area with an empty-state placeholder; a click on
-    /// the blank area clears the selection
+    /// the blank area clears the selection. `revealTail` scrolls the list
+    /// tail into view (where the inline entry row appears).
     private func scrollingList(
-        isEmpty: Bool, @ViewBuilder rows: () -> some View
+        isEmpty: Bool, revealTail: Bool = false, @ViewBuilder rows: () -> some View
     ) -> some View {
-        Group {
+        // Materialized before the ScrollViewReader closure: the builder
+        // parameter is non-escaping and the reader's content escapes
+        let content = rows()
+        return Group {
             if isEmpty {
                 Text(model.texts.ignoreEmpty)
                     .foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollView {
-                    VStack(spacing: 0) {
-                        rows()
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            content
+                            Color.clear.frame(height: 0).id("ignore-list-tail")
+                        }
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture { selection = nil }
+                    .onChange(of: revealTail) {
+                        if revealTail {
+                            proxy.scrollTo("ignore-list-tail")
+                        }
                     }
                 }
-                .contentShape(Rectangle())
-                .onTapGesture { selection = nil }
             }
         }
         .frame(height: ignoreListHeight)

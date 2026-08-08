@@ -92,8 +92,8 @@ final class SettingsWindowController: NSObject {
             (texts.tabGeneral, "gearshape", AnyView(GeneralTab(model: model))),
             (texts.tabDevices, "wifi", AnyView(DevicesTab(model: model))),
             (texts.tabSync, "arrow.triangle.2.circlepath", AnyView(SyncTab(model: model))),
-            (texts.tabIgnore, "nosign", AnyView(IgnoreTab(model: model))),
             (texts.tabStorage, "internaldrive", AnyView(StorageTab(model: model))),
+            (texts.tabIgnore, "nosign", AnyView(IgnoreTab(model: model))),
             (texts.tabHotkeys, "keyboard", AnyView(HotkeysTab(model: model))),
         ]
     }
