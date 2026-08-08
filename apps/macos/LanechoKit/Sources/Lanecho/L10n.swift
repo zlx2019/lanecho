@@ -54,9 +54,7 @@ struct Texts: Sendable {
     let ignoreFilesNote: String
     let ignoreSuppressSync: String
     let ignoreSuppressRecord: String
-    let ignoreAddApp: String
     let ignoreReset: String
-    let ignoreAdd: String
     let ignoreEmpty: String
     let deviceName: String
     let save: String
@@ -319,9 +317,7 @@ extension Texts {
         ignoreFilesNote: "每行一条规则, # 开头为注释; 含 / 按完整路径匹配, 否则按文件名; 命中任一文件即忽略整批。",
         ignoreSuppressSync: "忽略同步",
         ignoreSuppressRecord: "忽略记录",
-        ignoreAddApp: "添加应用…",
         ignoreReset: "重置",
-        ignoreAdd: "添加",
         ignoreEmpty: "暂无条目",
         deviceName: "设备名称",
         save: "保存",
@@ -464,9 +460,7 @@ extension Texts {
             "One rule per line, # starts a comment; a pattern with / matches the full path, otherwise the file name; one hit ignores the whole batch.",
         ignoreSuppressSync: "Don't sync",
         ignoreSuppressRecord: "Don't record",
-        ignoreAddApp: "Add Application…",
         ignoreReset: "Reset",
-        ignoreAdd: "Add",
         ignoreEmpty: "No entries",
         deviceName: "Device Name",
         save: "Save",

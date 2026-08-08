@@ -1,6 +1,10 @@
 // The Ignore tab: four rule kinds behind a segmented switch (apps /
-// pasteboard types / regex / file patterns), each with its own list editor
-// and its own "don't sync" / "don't record" toggle pair.
+// pasteboard types / regex / file patterns).
+//
+// Layout follows the classic preferences list editor (the Maccy reference):
+// a selectable list with hairline separators, a +/− button pair on the
+// bottom edge (− acts on the selected row), and the two suppression toggles
+// as a single row of small checkboxes shared by all four panes.
 //
 // The list area has a fixed height so the window height stays stable across
 // panes (the window is sized once from the tallest page and never resized on
@@ -21,7 +25,9 @@ private enum IgnorePane: String, CaseIterable {
 struct IgnoreTab: View {
     @Bindable var model: SettingsModel
     @State private var pane: IgnorePane = .apps
-    /// Entry field for the types / regex panes
+    /// Selected row (apps select by bundle id, types/regex by the value)
+    @State private var selection: String?
+    /// Entry field for the types / regex panes (committed by + or return)
     @State private var draft = ""
     /// Local editor text for the file pane, committed on blur (a TextEditor
     /// writing straight into settings would hit the disk on every keystroke)
@@ -38,26 +44,31 @@ struct IgnoreTab: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .onChange(of: pane) { draft = "" }
+            .onChange(of: pane) {
+                draft = ""
+                selection = nil
+            }
 
             SettingsSection(footer: note) {
                 switch pane {
                 case .apps: appsPane
-                case .types: listPane(items: model.settings.ignore.types, showReset: true) {
-                        model.removeIgnoredType($0)
-                    }
-                case .regex: listPane(items: model.settings.ignore.regexes, showReset: false) {
-                        model.removeIgnoredRegex($0)
-                    }
+                case .types: listPane(items: model.settings.ignore.types, showReset: true)
+                case .regex: listPane(items: model.settings.ignore.regexes, showReset: false)
                 case .files: filesPane
                 }
             }
 
+            // The suppression pair as small checkboxes on one shared row:
+            // two long toggle rows for two booleans reads as pure padding
             SettingsSection {
-                SettingsCheckRow(model.texts.ignoreSuppressSync, isOn: toggleBinding(sync: true))
-                SettingsDivider()
-                SettingsCheckRow(
-                    model.texts.ignoreSuppressRecord, isOn: toggleBinding(sync: false))
+                HStack(spacing: 24) {
+                    Toggle(model.texts.ignoreSuppressSync, isOn: toggleBinding(sync: true))
+                    Toggle(model.texts.ignoreSuppressRecord, isOn: toggleBinding(sync: false))
+                    Spacer()
+                }
+                .toggleStyle(.checkbox)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
             }
         }
         .onAppear { fileText = model.settings.ignore.filePatterns }
@@ -81,8 +92,12 @@ struct IgnoreTab: View {
     private var appsPane: some View {
         VStack(spacing: 0) {
             scrollingList(isEmpty: model.settings.ignore.apps.isEmpty) {
-                ForEach(model.settings.ignore.apps, id: \.id) { app in
-                    entryRow {
+                ForEach(Array(model.settings.ignore.apps.enumerated()), id: \.element.id) {
+                    index, app in
+                    if index > 0 {
+                        SettingsDivider()
+                    }
+                    selectableRow(id: app.id) {
                         HStack(spacing: 8) {
                             Image(nsImage: Self.appIcon(bundleId: app.id))
                                 .resizable()
@@ -90,71 +105,56 @@ struct IgnoreTab: View {
                             Text(app.name)
                             Text(app.id)
                                 .font(.caption)
-                                .foregroundStyle(.tertiary)
+                                .opacity(0.6)
                                 .lineLimit(1)
                         }
-                    } onRemove: {
-                        model.removeIgnoredApp(id: app.id)
                     }
                 }
             }
             SettingsDivider()
             HStack {
-                Button(model.texts.ignoreAddApp) { model.addIgnoredApp() }
-                    .controlSize(.small)
+                addRemoveButtons
                 Spacer()
             }
             .padding(.horizontal, 10)
-            .padding(.vertical, 7)
+            .padding(.vertical, 6)
         }
     }
 
     // MARK: - Types / regex (a plain string list plus an entry field)
 
-    private func listPane(
-        items: [String], showReset: Bool, onRemove: @escaping (String) -> Void
-    ) -> some View {
+    private func listPane(items: [String], showReset: Bool) -> some View {
         VStack(spacing: 0) {
             scrollingList(isEmpty: items.isEmpty) {
-                ForEach(items, id: \.self) { item in
-                    entryRow {
+                ForEach(Array(items.enumerated()), id: \.element) { index, item in
+                    if index > 0 {
+                        SettingsDivider()
+                    }
+                    selectableRow(id: item) {
                         Text(item)
                             .font(.system(.body, design: .monospaced))
                             .lineLimit(1)
                             .truncationMode(.middle)
-                    } onRemove: {
-                        onRemove(item)
                     }
                 }
             }
             SettingsDivider()
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
+                addRemoveButtons
                 TextField("", text: $draft)
                     .labelsHidden()
                     .textFieldStyle(.roundedBorder)
                     .font(.system(.body, design: .monospaced))
-                    .onSubmit(addDraft)
-                Button(model.texts.ignoreAdd, action: addDraft)
                     .controlSize(.small)
-                    .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .onSubmit(addAction)
                 if showReset {
                     Button(model.texts.ignoreReset) { model.resetIgnoredTypes() }
                         .controlSize(.small)
                 }
             }
             .padding(.horizontal, 10)
-            .padding(.vertical, 7)
+            .padding(.vertical, 6)
         }
-    }
-
-    /// Commit the entry field of the current pane
-    private func addDraft() {
-        switch pane {
-        case .types: model.addIgnoredType(draft)
-        case .regex: model.addIgnoredRegex(draft)
-        default: break
-        }
-        draft = ""
     }
 
     // MARK: - Files (a gitignore-style text editor)
@@ -170,7 +170,73 @@ struct IgnoreTab: View {
 
     // MARK: - Shared pieces
 
-    /// Fixed-height scroll area with an empty-state placeholder
+    /// The +/− pair on the bottom edge (the classic list-editor control):
+    /// + adds (open panel / commits the entry field), − removes the selection
+    private var addRemoveButtons: some View {
+        HStack(spacing: 0) {
+            Button(action: addAction) {
+                Image(systemName: "plus")
+                    .frame(width: 24, height: 18)
+                    .contentShape(Rectangle())
+            }
+            .disabled(addDisabled)
+            Divider()
+                .frame(height: 12)
+            Button(action: removeSelected) {
+                Image(systemName: "minus")
+                    .frame(width: 24, height: 18)
+                    .contentShape(Rectangle())
+            }
+            .disabled(selection == nil)
+        }
+        .buttonStyle(.borderless)
+        .imageScale(.small)
+        .overlay(
+            RoundedRectangle(cornerRadius: 5)
+                .stroke(Color.primary.opacity(0.15), lineWidth: 1)
+        )
+    }
+
+    /// + on the entry-field panes only makes sense with something typed
+    private var addDisabled: Bool {
+        switch pane {
+        case .types, .regex:
+            draft.trimmingCharacters(in: .whitespaces).isEmpty
+        default:
+            false
+        }
+    }
+
+    /// Add for the current pane
+    private func addAction() {
+        switch pane {
+        case .apps:
+            model.addIgnoredApp()
+        case .types:
+            model.addIgnoredType(draft)
+            draft = ""
+        case .regex:
+            model.addIgnoredRegex(draft)
+            draft = ""
+        case .files:
+            break
+        }
+    }
+
+    /// Remove the selected row of the current pane
+    private func removeSelected() {
+        guard let selected = selection else { return }
+        switch pane {
+        case .apps: model.removeIgnoredApp(id: selected)
+        case .types: model.removeIgnoredType(selected)
+        case .regex: model.removeIgnoredRegex(selected)
+        case .files: break
+        }
+        selection = nil
+    }
+
+    /// Fixed-height scroll area with an empty-state placeholder; a click on
+    /// the blank area clears the selection
     private func scrollingList(
         isEmpty: Bool, @ViewBuilder rows: () -> some View
     ) -> some View {
@@ -185,30 +251,36 @@ struct IgnoreTab: View {
                         rows()
                     }
                 }
+                .contentShape(Rectangle())
+                .onTapGesture { selection = nil }
             }
         }
         .frame(height: ignoreListHeight)
     }
 
-    /// One list row: content on the left, a remove button on the right
-    private func entryRow(
-        @ViewBuilder content: () -> some View, onRemove: @escaping () -> Void
+    /// One selectable list row (menu-style full-row highlight, white text
+    /// while selected)
+    private func selectableRow(
+        id: String, @ViewBuilder content: () -> some View
     ) -> some View {
-        HStack {
+        let selected = selection == id
+        return HStack {
             content()
-            Spacer(minLength: 12)
-            Button(action: onRemove) {
-                Image(systemName: "minus.circle.fill")
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
+        .foregroundStyle(selected ? Color.white : Color.primary)
+        .background(
+            selected
+                ? Color(nsColor: .selectedContentBackgroundColor) : Color.clear
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { selection = id }
     }
 
     /// The toggle pair of the current pane (sync: true → the "don't sync"
-    /// switch, false → "don't record")
+    /// checkbox, false → "don't record")
     private func toggleBinding(sync: Bool) -> Binding<Bool> {
         let keyPath: WritableKeyPath<LanechoKit.Settings, Bool> =
             switch (pane, sync) {
