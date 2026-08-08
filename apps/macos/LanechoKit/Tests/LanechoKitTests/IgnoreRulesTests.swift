@@ -91,10 +91,11 @@ private func rules(_ patch: (inout IgnoreSettings) -> Void) -> IgnoreRules {
             == .none)
 }
 
-/// File rule: name globs vs full-path globs, comments and blank lines, any
-/// hit ignores the whole batch, case-insensitive
-@Test func fileRuleParsesGitignoreSubset() {
-    let rules = rules {
+/// File rule: name globs vs full-path globs, comments and blank lines,
+/// filtering semantics (hits are excluded, the rest of the batch goes
+/// through), case-insensitive
+@Test func fileRuleFiltersMatchedPaths() {
+    let filtering = rules {
         $0.filePatterns = """
             # keys never leave this machine
             *.key
@@ -103,28 +104,41 @@ private func rules(_ patch: (inout IgnoreSettings) -> Void) -> IgnoreRules {
             """
         $0.filesRecord = true
     }
+    let partial = filtering.evaluate(
+        content: .files(["/tmp/a.yaml", "/tmp/b.KEY"]), pasteboardTypes: [],
+        sourceBundleId: nil)
     #expect(
-        rules.evaluate(
-            content: .files(["/tmp/server.KEY"]), pasteboardTypes: [], sourceBundleId: nil)
-            == IgnoreVerdict(suppressSync: true, suppressRecord: true),
-        "Name glob, case-insensitive")
+        partial.broadcastFilesExcluded == ["/tmp/b.KEY"],
+        "Only the hits are excluded (case-insensitive); the rest still syncs")
     #expect(
-        rules.evaluate(
+        partial.recordFilesExcluded == ["/tmp/b.KEY"],
+        "The record toggle arms the record leg with the same hits")
+    #expect(
+        !partial.suppressSync && !partial.suppressRecord,
+        "File rules filter; they never suppress the whole event")
+    #expect(
+        !filtering.evaluate(
             content: .files(["/Users/zero/secrets/token.txt"]), pasteboardTypes: [],
             sourceBundleId: nil
-        ).suppressSync, "A pattern containing / matches the full path")
+        ).broadcastFilesExcluded.isEmpty, "A pattern containing / matches the full path")
     #expect(
-        rules.evaluate(
-            content: .files(["/tmp/a.txt", "/tmp/b.key"]), pasteboardTypes: [],
-            sourceBundleId: nil
-        ).suppressSync, "One hit ignores the whole batch")
-    #expect(
-        rules.evaluate(
+        filtering.evaluate(
             content: .files(["/tmp/notes.txt"]), pasteboardTypes: [], sourceBundleId: nil)
             == .none)
     #expect(
-        rules.evaluate(content: .text("*.key"), pasteboardTypes: [], sourceBundleId: nil)
+        filtering.evaluate(content: .text("*.key"), pasteboardTypes: [], sourceBundleId: nil)
             == .none, "The file rule leaves text alone")
+
+    // The sync toggle off leaves the broadcast leg unarmed
+    let recordOnly = rules {
+        $0.filePatterns = "*.key"
+        $0.filesSync = false
+        $0.filesRecord = true
+    }
+    let verdict = recordOnly.evaluate(
+        content: .files(["/tmp/b.key"]), pasteboardTypes: [], sourceBundleId: nil)
+    #expect(verdict.broadcastFilesExcluded.isEmpty)
+    #expect(verdict.recordFilesExcluded == ["/tmp/b.key"])
 }
 
 /// Toggle merging: hits from several kinds OR together; a kind with both

@@ -211,6 +211,10 @@ pub enum EngineEvent {
         /// Ignore-rule verdict riding through from the shell's ingest (see
         /// ClipboardEvent): the history pipeline must skip this copy
         suppress_record: bool,
+        /// File-rule verdict (Files content): paths the history pipeline
+        /// must drop from the recording — the rest of the batch records as
+        /// usual, and dropping them all skips the entry
+        record_files_excluded: Vec<std::path::PathBuf>,
     },
     /// A remote sync was accepted; the shell layer should write the content to
     /// the system clipboard
@@ -1275,7 +1279,19 @@ fn spawn_clipboard_pump(
                 ClipboardContent::Files(paths)
                     if send && inner.sync_files.load(Ordering::Relaxed) =>
                 {
-                    Outbound::Files(paths.clone())
+                    // File-rule filtering: drop the excluded paths and keep
+                    // syncing the rest; everything excluded means nothing to
+                    // broadcast (the LWW baseline advanced above regardless)
+                    let kept: Vec<std::path::PathBuf> = paths
+                        .iter()
+                        .filter(|path| !event.broadcast_files_excluded.contains(path))
+                        .cloned()
+                        .collect();
+                    if kept.is_empty() {
+                        Outbound::None
+                    } else {
+                        Outbound::Files(kept)
+                    }
                 }
                 _ => Outbound::None,
             };
@@ -1285,6 +1301,7 @@ fn spawn_clipboard_pump(
                     hash: event.hash,
                     timestamp_ms: event.timestamp_ms,
                     suppress_record: event.suppress_record,
+                    record_files_excluded: event.record_files_excluded,
                 })
                 .await;
             match outbound {

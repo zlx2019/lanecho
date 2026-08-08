@@ -314,7 +314,7 @@ extension Texts {
         ignoreAppsNote: "忽略来自这些应用的文本内容。",
         ignoreTypesNote: "携带这些剪贴板类型标记的内容将被忽略; 预置列表覆盖常见密码管理器与临时内容标记。",
         ignoreRegexNote: "按输入的正则在文本中搜索, 命中任一条即忽略; 需要精确匹配请用 ^ $ 锚定。",
-        ignoreFilesNote: "每行一条规则, # 开头为注释; 含 / 按完整路径匹配, 否则按文件名; 命中任一文件即忽略整批。",
+        ignoreFilesNote: "每行一条规则, # 开头为注释; 含 / 按完整路径匹配, 否则按文件名; 命中的文件被忽略, 其余文件照常处理。",
         ignoreSuppressSync: "忽略同步",
         ignoreSuppressRecord: "忽略记录",
         ignoreReset: "重置",
@@ -457,7 +457,7 @@ extension Texts {
         ignoreRegexNote:
             "Patterns search the text as written; any hit ignores it. Anchor with ^ $ for an exact match.",
         ignoreFilesNote:
-            "One rule per line, # starts a comment; a pattern with / matches the full path, otherwise the file name; one hit ignores the whole batch.",
+            "One rule per line, # starts a comment; a pattern with / matches the full path, otherwise the file name; matched files are dropped, the rest go through.",
         ignoreSuppressSync: "Don't sync",
         ignoreSuppressRecord: "Don't record",
         ignoreReset: "Reset",

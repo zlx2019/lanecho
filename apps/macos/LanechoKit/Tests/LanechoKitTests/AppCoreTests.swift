@@ -374,3 +374,22 @@ func ignoreSuppressesRecordButStillSyncs() async throws {
         await a.core.historyList().isEmpty,
         "A suppressRecord event must not enter the sender's history")
 }
+
+/// Ignore verdict, file filtering on the record leg: excluded paths are
+/// dropped from the history entry and the rest of the batch records (with
+/// the hash recomputed over what is stored)
+@Test(.timeLimit(.minutes(1)))
+func excludedFilesAreFilteredFromTheRecording() async throws {
+    let node = try await CoreNode.start(discoveryPort: UInt16.random(in: 42600...42999))
+    defer { Task { await node.stop() } }
+
+    let content = ClipboardContent.files(["/tmp/secret.yaml", "/tmp/photo.png"])
+    var event = ClipboardEvent(content: content, hash: content.hash(), timestampMs: nowMs())
+    event.recordFilesExcluded = ["/tmp/secret.yaml"]
+    await node.core.engine.clipboardChanged(event)
+    try await node.log.waitFor("filtered record") {
+        if case .historyChanged = $0 { true } else { false }
+    }
+    let entry = try #require(await node.core.historyList().first)
+    #expect(entry.files == ["/tmp/photo.png"], "命中的文件不入历史, 其余照常记录")
+}

@@ -13,10 +13,15 @@
 // - File patterns: one per line, `#` comments and blank lines skipped, no `!`
 //   negation. A pattern containing `/` matches against the full path,
 //   otherwise against the file name; fnmatch glob syntax (* ? [..]), case
-//   insensitive to follow the macOS file system. Any hit ignores the whole
-//   batch — filtering the list would silently change what was copied.
+//   insensitive to follow the macOS file system. File rules **filter**
+//   rather than suppress: matched paths are dropped from the affected
+//   pipeline and the rest of the batch goes through (copying a.yaml + b.png
+//   with *.yaml ignored still syncs b.png); a batch matched in full ends up
+//   empty and is skipped whole.
 // - A rule kind whose both toggles are off contributes nothing; hits from
-//   several kinds OR their toggles together
+//   several kinds OR their toggles together (the type rule covers files too
+//   and suppresses the whole batch — the type marker is a property of the
+//   clipboard change, not of any one file)
 
 import Foundation
 
@@ -26,14 +31,25 @@ public struct IgnoreVerdict: Sendable, Equatable {
     public var suppressSync: Bool
     /// Do not record into the local history
     public var suppressRecord: Bool
+    /// File-rule hits to drop from the broadcast (empty when the files-sync
+    /// toggle is off or nothing matched); the rest of the batch still syncs
+    public var broadcastFilesExcluded: [String]
+    /// File-rule hits to drop from the history recording (same filtering
+    /// semantics on the record leg)
+    public var recordFilesExcluded: [String]
 
     /// No rule hit
     public static let none = IgnoreVerdict(suppressSync: false, suppressRecord: false)
 
     /// Field-wise initializer
-    public init(suppressSync: Bool, suppressRecord: Bool) {
+    public init(
+        suppressSync: Bool, suppressRecord: Bool,
+        broadcastFilesExcluded: [String] = [], recordFilesExcluded: [String] = []
+    ) {
         self.suppressSync = suppressSync
         self.suppressRecord = suppressRecord
+        self.broadcastFilesExcluded = broadcastFilesExcluded
+        self.recordFilesExcluded = recordFilesExcluded
     }
 
     /// OR-merge the toggles of one matched rule kind
@@ -115,8 +131,19 @@ public struct IgnoreRules: @unchecked Sendable {
                 verdict.merge(sync: config.regexSync, record: config.regexRecord)
             }
         case .files(let paths):
-            if !filePatterns.isEmpty, paths.contains(where: matchesFile) {
-                verdict.merge(sync: config.filesSync, record: config.filesRecord)
+            // Filtering semantics: collect the hits and hand them to
+            // whichever legs the toggles arm; the pipelines drop them and
+            // keep the rest of the batch
+            if !filePatterns.isEmpty {
+                let hits = paths.filter(matchesFile)
+                if !hits.isEmpty {
+                    if config.filesSync {
+                        verdict.broadcastFilesExcluded = hits
+                    }
+                    if config.filesRecord {
+                        verdict.recordFilesExcluded = hits
+                    }
+                }
             }
         default:
             break

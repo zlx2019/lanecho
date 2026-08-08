@@ -147,6 +147,14 @@ pub struct ClipboardEvent {
     /// Ignore verdict: skip the history recording (rides through the engine
     /// into LocalCopied)
     pub suppress_record: bool,
+    /// File-rule verdict (Files content only): paths to drop from the
+    /// broadcast — the rest of the batch still syncs, and dropping them all
+    /// skips the broadcast entirely. File rules filter rather than suppress:
+    /// copying a.yaml + b.png with *.yaml ignored must still sync b.png.
+    pub broadcast_files_excluded: Vec<std::path::PathBuf>,
+    /// File-rule verdict: paths to drop from the history recording (rides
+    /// through the engine into LocalCopied; same filtering semantics)
+    pub record_files_excluded: Vec<std::path::PathBuf>,
 }
 
 impl ClipboardEvent {
@@ -160,6 +168,8 @@ impl ClipboardEvent {
             pasteboard_types: Vec::new(),
             suppress_broadcast: false,
             suppress_record: false,
+            broadcast_files_excluded: Vec::new(),
+            record_files_excluded: Vec::new(),
         }
     }
 }
@@ -425,6 +435,8 @@ pub fn spawn_watcher(
                 pasteboard_types,
                 suppress_broadcast: false,
                 suppress_record: false,
+                broadcast_files_excluded: Vec::new(),
+                record_files_excluded: Vec::new(),
             };
             if tx.send(event).await.is_err() {
                 return;

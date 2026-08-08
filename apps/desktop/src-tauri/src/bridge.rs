@@ -237,6 +237,8 @@ fn spawn_ingest(
                 );
                 event.suppress_broadcast = verdict.suppress_sync;
                 event.suppress_record = verdict.suppress_record;
+                event.broadcast_files_excluded = verdict.broadcast_files_excluded;
+                event.record_files_excluded = verdict.record_files_excluded;
             }
             if clip_tx.send(event).await.is_err() {
                 return;
@@ -394,6 +396,7 @@ fn spawn_event_pump(deps: PumpDeps) {
                     hash,
                     timestamp_ms,
                     suppress_record,
+                    record_files_excluded,
                 } => {
                     if incognito.load(Ordering::Relaxed) {
                         continue;
@@ -425,6 +428,29 @@ fn spawn_event_pump(deps: PumpDeps) {
                     if suppress_record {
                         continue;
                     }
+                    // File-rule filtering on the record leg: drop the
+                    // excluded paths and record the rest; the hash is
+                    // recomputed over the filtered list so dedup counts and
+                    // the restore registration stay consistent with what is
+                    // actually stored. Everything excluded means nothing to
+                    // record.
+                    let (content, hash) = if record_files_excluded.is_empty() {
+                        (content, hash)
+                    } else if let ClipboardContent::Files(paths) = &content {
+                        let kept: Vec<std::path::PathBuf> = paths
+                            .iter()
+                            .filter(|path| !record_files_excluded.contains(path))
+                            .cloned()
+                            .collect();
+                        if kept.is_empty() {
+                            continue;
+                        }
+                        let filtered = ClipboardContent::Files(kept);
+                        let hash = filtered.hash();
+                        (filtered, hash)
+                    } else {
+                        (content, hash)
+                    };
                     let source_app = if restored {
                         None
                     } else {

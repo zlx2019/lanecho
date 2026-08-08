@@ -29,7 +29,7 @@ export const en = {
     regexNote:
       "Patterns search the text as written; any hit ignores it. Anchor with ^ $ for an exact match.",
     filesNote:
-      "One rule per line, # starts a comment; a pattern with / matches the full path, otherwise the file name; one hit ignores the whole batch.",
+      "One rule per line, # starts a comment; a pattern with / matches the full path, otherwise the file name; matched files are dropped, the rest go through.",
     suppressSync: "Don't sync",
     suppressRecord: "Don't record",
     reset: "Reset",

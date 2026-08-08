@@ -284,6 +284,8 @@ public actor AppCore {
             sourceBundleId: bundleId)
         event.suppressBroadcast = verdict.suppressSync
         event.suppressRecord = verdict.suppressRecord
+        event.broadcastFilesExcluded = verdict.broadcastFilesExcluded
+        event.recordFilesExcluded = verdict.recordFilesExcluded
         await engine.clipboardChanged(event)
     }
 
@@ -300,20 +302,38 @@ public actor AppCore {
             events.yield(.paired(info))
         case .unpaired(let fingerprint):
             events.yield(.unpaired(fingerprint))
-        case .localCopied(let content, let hash, let timestampMs, let suppressRecord):
+        case .localCopied(
+            let rawContent, let rawHash, let timestampMs, let suppressRecord,
+            let recordFilesExcluded):
             guard !incognito else { return }
             // A skip-the-read event only advances the LWW baseline; there is
             // no content to record
-            if case .imageUnread = content { return }
+            if case .imageUnread = rawContent { return }
             // Restore write: on a hash match do not capture the source
             // application (a registration that does not match is voided too).
             // The registration is consumed before the ignore check — an
             // ignored restore must not leave it behind to mislabel the next
             // genuine copy
-            let restored = restoreHash == hash
+            let restored = restoreHash == rawHash
             restoreHash = nil
             // Ignore rules: the record leg is cut, sync already went its way
             if suppressRecord { return }
+            // File-rule filtering on the record leg: drop the excluded paths
+            // and record the rest; the hash is recomputed over the filtered
+            // list so dedup counts and the restore registration stay
+            // consistent with what is actually stored. Everything excluded
+            // means nothing to record.
+            let content: ClipboardContent
+            let hash: String
+            if !recordFilesExcluded.isEmpty, case .files(let paths) = rawContent {
+                let kept = paths.filter { !recordFilesExcluded.contains($0) }
+                if kept.isEmpty { return }
+                content = .files(kept)
+                hash = content.hash()
+            } else {
+                content = rawContent
+                hash = rawHash
+            }
             let sourceApp = restored ? nil : await frontmostAppName()
             // Icon captured alongside: at most once per application per
             // session, and when it is already on disk even the extraction is

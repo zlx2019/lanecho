@@ -15,9 +15,14 @@
 //!   `!` negation. A pattern containing `/` matches against the full path,
 //!   otherwise against the file name; glob syntax (* ? [..]) with `*`
 //!   crossing `/`, case-insensitive — all matching the fnmatch flags the
-//!   Swift side uses. Any hit ignores the whole batch.
+//!   Swift side uses. File rules **filter** rather than suppress: matched
+//!   paths are dropped from the affected pipeline and the rest of the batch
+//!   goes through (copying a.yaml + b.png with *.yaml ignored still syncs
+//!   b.png); a batch matched in full ends up empty and is skipped whole.
 //! - A rule kind whose both toggles are off contributes nothing; hits from
-//!   several kinds OR their toggles together
+//!   several kinds OR their toggles together (the type rule covers Files
+//!   too and suppresses the whole batch — the type marker is a property of
+//!   the clipboard change, not of any one file)
 
 use std::collections::HashSet;
 
@@ -26,12 +31,18 @@ use lanecho_core::clipboard::ClipboardContent;
 use crate::settings::IgnoreSettings;
 
 /// The verdict for one clipboard change
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct IgnoreVerdict {
     /// Do not broadcast to peers (the LWW baseline still advances)
     pub suppress_sync: bool,
     /// Do not record into the local history
     pub suppress_record: bool,
+    /// File-rule hits to drop from the broadcast (empty when the files-sync
+    /// toggle is off or nothing matched); the rest of the batch still syncs
+    pub broadcast_files_excluded: Vec<std::path::PathBuf>,
+    /// File-rule hits to drop from the history recording (same filtering
+    /// semantics on the record leg)
+    pub record_files_excluded: Vec<std::path::PathBuf>,
 }
 
 impl IgnoreVerdict {
@@ -123,11 +134,23 @@ impl IgnoreRules {
                     verdict.merge(self.config.regex_sync, self.config.regex_record);
                 }
             }
-            ClipboardContent::Files(paths)
-                if !self.file_patterns.is_empty()
-                    && paths.iter().any(|path| self.matches_file(path)) =>
-            {
-                verdict.merge(self.config.files_sync, self.config.files_record);
+            ClipboardContent::Files(paths) if !self.file_patterns.is_empty() => {
+                // Filtering semantics: collect the hits and hand them to
+                // whichever legs the toggles arm; the pipelines drop them
+                // and keep the rest of the batch
+                let hits: Vec<std::path::PathBuf> = paths
+                    .iter()
+                    .filter(|path| self.matches_file(path))
+                    .cloned()
+                    .collect();
+                if !hits.is_empty() {
+                    if self.config.files_sync {
+                        verdict.broadcast_files_excluded = hits.clone();
+                    }
+                    if self.config.files_record {
+                        verdict.record_files_excluded = hits;
+                    }
+                }
             }
             _ => {}
         }
@@ -355,40 +378,56 @@ mod tests {
         );
     }
 
-    /// File rule: name vs full-path globs, comments, whole-batch semantics,
+    /// File rule: name vs full-path globs, comments, filtering semantics
+    /// (hits are excluded, the rest of the batch goes through),
     /// case-insensitive
     #[test]
-    fn file_rule_parses_gitignore_subset() {
-        let rules = rules(|s| {
+    fn file_rule_filters_matched_paths() {
+        let filtering = rules(|s| {
             s.file_patterns = "# keys never leave\n*.key\n\n/Users/*/secrets/*".into();
+            s.files_record = true;
         });
-        assert!(
-            rules
-                .evaluate(&files(&["/tmp/server.KEY"]), &[], None)
-                .suppress_sync,
-            "Name glob, case-insensitive"
-        );
-        assert!(
-            rules
-                .evaluate(&files(&["/Users/zero/secrets/token.txt"]), &[], None)
-                .suppress_sync,
-            "A pattern containing / matches the full path"
-        );
-        assert!(
-            rules
-                .evaluate(&files(&["/tmp/a.txt", "/tmp/b.key"]), &[], None)
-                .suppress_sync,
-            "One hit ignores the whole batch"
+        let partial = filtering.evaluate(&files(&["/tmp/a.yaml", "/tmp/b.KEY"]), &[], None);
+        assert_eq!(
+            partial.broadcast_files_excluded,
+            vec![std::path::PathBuf::from("/tmp/b.KEY")],
+            "Only the hits are excluded (case-insensitive); the rest still syncs"
         );
         assert_eq!(
-            rules.evaluate(&files(&["/tmp/notes.txt"]), &[], None),
+            partial.record_files_excluded,
+            vec![std::path::PathBuf::from("/tmp/b.KEY")],
+            "The record toggle arms the record leg with the same hits"
+        );
+        assert!(
+            !partial.suppress_sync && !partial.suppress_record,
+            "File rules filter; they never suppress the whole event"
+        );
+        assert!(
+            !filtering
+                .evaluate(&files(&["/Users/zero/secrets/token.txt"]), &[], None)
+                .broadcast_files_excluded
+                .is_empty(),
+            "A pattern containing / matches the full path"
+        );
+        assert_eq!(
+            filtering.evaluate(&files(&["/tmp/notes.txt"]), &[], None),
             IgnoreVerdict::default()
         );
         assert_eq!(
-            rules.evaluate(&text("*.key"), &[], None),
+            filtering.evaluate(&text("*.key"), &[], None),
             IgnoreVerdict::default(),
             "The file rule leaves text alone"
         );
+
+        // The sync toggle off leaves the broadcast leg unarmed
+        let record_only = rules(|s| {
+            s.file_patterns = "*.key".into();
+            s.files_sync = false;
+            s.files_record = true;
+        });
+        let verdict = record_only.evaluate(&files(&["/tmp/b.key"]), &[], None);
+        assert!(verdict.broadcast_files_excluded.is_empty());
+        assert_eq!(verdict.record_files_excluded.len(), 1);
     }
 
     /// Toggle merging across kinds; a kind with both toggles off is inert
