@@ -2296,7 +2296,7 @@ dependencies = [
 
 [[package]]
 name = "lanecho-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -2307,7 +2307,7 @@ dependencies = [
 
 [[package]]
 name = "lanecho-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "arboard",
  "blake3",
@@ -2334,7 +2334,7 @@ dependencies = [
 
 [[package]]
 name = "lanecho-desktop"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "fast_image_resize",
