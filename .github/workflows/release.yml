@@ -13,6 +13,13 @@ jobs:
   changelog:
     name: Changelog
     runs-on: ubuntu-latest
+    # The bundle jobs feed the changelog back to tauri-action: on an existing
+    # release it always PATCHes name+body with its own inputs (see
+    # create-release.ts "Updating name and body of existing release"), so
+    # leaving releaseBody unset had every bundle job wipe the changelog this
+    # job just wrote
+    outputs:
+      content: ${{ steps.cliff.outputs.content }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -28,6 +35,7 @@ jobs:
           fi
 
       - name: Generate changelog
+        id: cliff
         uses: orhun/git-cliff-action@v4
         with:
           config: cliff.toml
@@ -126,6 +134,16 @@ jobs:
           tagName: ${{ github.ref_name }}
           args: ${{ matrix.args }}
           releaseAssetNamePattern: ${{ matrix.asset_name_pattern }}
+          # tauri-action PATCHes name+body onto an existing release whatever
+          # happens, so it must be handed the same changelog the release was
+          # created with — otherwise each bundle job resets the body to empty.
+          # releaseName/prerelease guard the same PATCH (and the create path,
+          # reachable when a bundle job is re-run against a deleted release):
+          # unset they would blank the title and promote an rc to a full
+          # release
+          releaseName: ${{ github.ref_name }}
+          releaseBody: ${{ needs.changelog.outputs.content }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
 
   macos-native:
     name: Bundle macOS (native)
