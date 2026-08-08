@@ -151,6 +151,16 @@ pub fn save_settings(
     // values
     if old.ignore != settings.ignore {
         *lock(&state.ignore_rules) = crate::ignore::IgnoreRules::new(&settings.ignore);
+        // Same cause and cure as record_resumed: content copied while a rule
+        // suppressed it already sits in the watcher's dedup baseline, so
+        // after loosening the rules, copying that same content again would
+        // be swallowed at the watcher and never re-judged. Any ignore change
+        // resets the baseline — over-resetting is harmless (one extra event
+        // for an identical copy), while a precise "did it loosen" analysis
+        // across four rule kinds is not worth the failure modes.
+        state
+            .reset_dedupe
+            .store(true, std::sync::atomic::Ordering::Relaxed);
     }
     if old.autostart != settings.autostart {
         use tauri_plugin_autostart::ManagerExt;

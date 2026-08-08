@@ -445,6 +445,14 @@ extension AppCore {
         }
         if old.ignore != new.ignore {
             ignoreRules = IgnoreRules(new.ignore)
+            // Same cause and cure as recordResumed: content copied while a
+            // rule suppressed it already sits in the watcher's dedup
+            // baseline, so after loosening the rules, copying that same
+            // content again would be swallowed at the watcher and never
+            // re-judged. Any ignore change resets the baseline —
+            // over-resetting is harmless (one extra event for an identical
+            // copy)
+            resetBaseline.set(true)
         }
         // Recording or the sync pipe resumed (either gate went from off to
         // on): reset the watcher's dedup baseline, so content copied while a
