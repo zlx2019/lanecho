@@ -31,10 +31,13 @@ struct SettingsPage<Content: View>: View {
     }
 }
 
-/// General: display name / language / preview card delay / version
+/// General: display name / autostart / language / preview card delay /
+/// pause recording / auto paste / port
 struct GeneralTab: View {
     @Bindable var model: SettingsModel
     @FocusState private var nameFocused: Bool
+    @FocusState private var delayFocused: Bool
+    @FocusState private var portFocused: Bool
 
     var body: some View {
         SettingsPage {
@@ -83,15 +86,40 @@ struct GeneralTab: View {
                 }
                 SettingsDivider()
                 SettingsRow(model.texts.previewDelay) {
-                    HStack(spacing: 8) {
-                        Text("\(model.settings.previewDelayMs) ms")
+                    HStack(spacing: 6) {
+                        TextField("", text: $model.previewDelayText)
+                            .labelsHidden()
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 56)
+                            .multilineTextAlignment(.trailing)
+                            .focused($delayFocused)
+                            .onSubmit { model.savePreviewDelay() }
+                            .onChange(of: delayFocused) {
+                                if !delayFocused { model.savePreviewDelay() }
+                            }
+                        Text("ms")
                             .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                        Stepper(
-                            "", value: previewDelayBinding, in: 0...2000, step: 50
-                        )
-                        .labelsHidden()
                     }
+                }
+            }
+            SettingsSection(footer: model.texts.incognitoNote) {
+                SettingsToggleRow(label: model.texts.incognitoLabel, isOn: incognitoBinding)
+            }
+            SettingsSection(footer: model.texts.autoPasteNote) {
+                SettingsToggleRow(label: model.texts.autoPasteLabel, isOn: autoPasteBinding)
+            }
+            SettingsSection(footer: model.texts.portRestartNote) {
+                SettingsRow(model.texts.portLabel) {
+                    TextField("", text: $model.portText)
+                        .labelsHidden()
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
+                        .multilineTextAlignment(.trailing)
+                        .focused($portFocused)
+                        .onSubmit { model.savePort() }
+                        .onChange(of: portFocused) {
+                            if !portFocused { model.savePort() }
+                        }
                 }
             }
         }
@@ -103,16 +131,22 @@ struct GeneralTab: View {
             set: { model.changeLanguage($0) })
     }
 
-    private var previewDelayBinding: Binding<UInt32> {
-        Binding(
-            get: { model.settings.previewDelayMs },
-            set: { value in model.patch { $0.previewDelayMs = value } })
-    }
-
     private var autostartBinding: Binding<Bool> {
         Binding(
             get: { model.autostart },
             set: { model.toggleAutostart($0) })
+    }
+
+    private var incognitoBinding: Binding<Bool> {
+        Binding(
+            get: { model.incognito },
+            set: { model.toggleIncognito($0) })
+    }
+
+    private var autoPasteBinding: Binding<Bool> {
+        Binding(
+            get: { model.settings.autoPaste },
+            set: { model.toggleAutoPaste($0) })
     }
 }
 
@@ -194,11 +228,9 @@ struct DevicesTab: View {
     }
 }
 
-/// Sync: direction policy / type toggles and file limit / notifications /
-/// incognito / port
+/// Sync: direction policy / type toggles and file limit / notifications
 struct SyncTab: View {
     @Bindable var model: SettingsModel
-    @FocusState private var portFocused: Bool
     @FocusState private var limitFocused: Bool
 
     var body: some View {
@@ -220,11 +252,17 @@ struct SyncTab: View {
                 }
             }
             SettingsSection(footer: model.texts.syncTypesNote) {
-                SettingsCheckRow(model.texts.syncTypeText, isOn: checkBinding(\.syncText))
-                SettingsDivider()
-                SettingsCheckRow(model.texts.syncTypeImages, isOn: checkBinding(\.syncImages))
-                SettingsDivider()
-                SettingsCheckRow(model.texts.syncTypeFiles, isOn: checkBinding(\.syncFiles))
+                // The three type checkboxes share one row: three full-width
+                // toggle rows for three booleans read as padding
+                HStack(spacing: 24) {
+                    Toggle(model.texts.syncTypeText, isOn: checkBinding(\.syncText))
+                    Toggle(model.texts.syncTypeImages, isOn: checkBinding(\.syncImages))
+                    Toggle(model.texts.syncTypeFiles, isOn: checkBinding(\.syncFiles))
+                    Spacer()
+                }
+                .toggleStyle(.checkbox)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
                 SettingsDivider()
                 // The limit only applies to file sync: it gets its own row and
                 // is greyed out while "files" is unchecked
@@ -251,26 +289,6 @@ struct SyncTab: View {
                 SettingsToggleRow(
                     label: model.texts.notifyOnSync, isOn: toggleBinding(\.notifyOnSync))
             }
-            SettingsSection(footer: model.texts.incognitoNote) {
-                SettingsToggleRow(label: model.texts.incognitoLabel, isOn: incognitoBinding)
-            }
-            SettingsSection(footer: model.texts.autoPasteNote) {
-                SettingsToggleRow(label: model.texts.autoPasteLabel, isOn: autoPasteBinding)
-            }
-            SettingsSection(footer: model.texts.portRestartNote) {
-                SettingsRow(model.texts.portLabel) {
-                    TextField("", text: $model.portText)
-                        .labelsHidden()
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 80)
-                        .multilineTextAlignment(.trailing)
-                        .focused($portFocused)
-                        .onSubmit { model.savePort() }
-                        .onChange(of: portFocused) {
-                            if !portFocused { model.savePort() }
-                        }
-                }
-            }
         }
     }
 
@@ -292,18 +310,6 @@ struct SyncTab: View {
         _ keyPath: WritableKeyPath<LanechoKit.Settings, Bool>
     ) -> Binding<Bool> {
         toggleBinding(keyPath)
-    }
-
-    private var incognitoBinding: Binding<Bool> {
-        Binding(
-            get: { model.incognito },
-            set: { model.toggleIncognito($0) })
-    }
-
-    private var autoPasteBinding: Binding<Bool> {
-        Binding(
-            get: { model.settings.autoPaste },
-            set: { model.toggleAutoPaste($0) })
     }
 }
 
@@ -335,45 +341,42 @@ struct StorageTab: View {
                 }
             }
             SettingsSection(footer: model.texts.recordNote) {
-                // Multi-select semantics (which types to record) use
-                // checkboxes, matching the sync type toggles
-                SettingsCheckRow(
-                    model.texts.recordText, isOn: recordBinding(\.historyRecordText))
-                SettingsDivider()
-                SettingsCheckRow(
-                    model.texts.recordImages, isOn: recordBinding(\.historyRecordImages))
-                SettingsDivider()
-                SettingsCheckRow(
-                    model.texts.recordFiles, isOn: recordBinding(\.historyRecordFiles))
+                // The three record-type checkboxes share one row, matching
+                // the sync type toggles
+                HStack(spacing: 24) {
+                    Toggle(model.texts.recordText, isOn: recordBinding(\.historyRecordText))
+                    Toggle(model.texts.recordImages, isOn: recordBinding(\.historyRecordImages))
+                    Toggle(model.texts.recordFiles, isOn: recordBinding(\.historyRecordFiles))
+                    Spacer()
+                }
+                .toggleStyle(.checkbox)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
             }
             SettingsSection {
                 SettingsRow(model.texts.usageLabel) {
-                    Text(
-                        ByteCountFormatter.string(
-                            fromByteCount: Int64(model.usageBytes), countStyle: .file)
-                    )
-                    .foregroundStyle(.secondary)
-                }
-                SettingsDivider()
-                HStack {
-                    Button(model.texts.clearHistory, role: .destructive) {
-                        confirmingClear = true
-                    }
-                    .controlSize(.small)
-                    .confirmationDialog(
-                        model.texts.confirmClearTitle, isPresented: $confirmingClear
-                    ) {
-                        Button(model.texts.clearConfirm, role: .destructive) {
-                            model.clearHistory()
+                    HStack(spacing: 10) {
+                        Text(
+                            ByteCountFormatter.string(
+                                fromByteCount: Int64(model.usageBytes), countStyle: .file)
+                        )
+                        .foregroundStyle(.secondary)
+                        Button(model.texts.clearHistory, role: .destructive) {
+                            confirmingClear = true
                         }
-                        Button(model.texts.cancel, role: .cancel) {}
-                    } message: {
-                        Text(model.texts.confirmClearBody)
+                        .controlSize(.small)
+                        .confirmationDialog(
+                            model.texts.confirmClearTitle, isPresented: $confirmingClear
+                        ) {
+                            Button(model.texts.clearConfirm, role: .destructive) {
+                                model.clearHistory()
+                            }
+                            Button(model.texts.cancel, role: .cancel) {}
+                        } message: {
+                            Text(model.texts.confirmClearBody)
+                        }
                     }
-                    Spacer()
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
             }
         }
     }

@@ -87,25 +87,3 @@ struct SettingsToggleRow: View {
         }
     }
 }
-
-/// Checkbox row (checkboxes carry multi-select semantics; laid out like every
-/// other row, label left and control right — putting the checkbox at the head
-/// of the row fights the rhythm of the toggle and text-field rows and reads
-/// like a second UI pasted in)
-struct SettingsCheckRow: View {
-    let label: String
-    let isOn: Binding<Bool>
-
-    init(_ label: String, isOn: Binding<Bool>) {
-        self.label = label
-        self.isOn = isOn
-    }
-
-    var body: some View {
-        SettingsRow(label) {
-            Toggle("", isOn: isOn)
-                .labelsHidden()
-                .toggleStyle(.checkbox)
-        }
-    }
-}

@@ -30,6 +30,8 @@ final class SettingsModel {
     var portText = ""
     /// File sync limit field (MB)
     var fileLimitText = ""
+    /// Preview card delay field (ms)
+    var previewDelayText = ""
     /// Local fingerprint (display only)
     var localFingerprint = ""
     /// Incognito (session state)
@@ -78,6 +80,7 @@ final class SettingsModel {
         localFingerprint = info.fingerprint
         portText = String(settings.tcpPort)
         fileLimitText = String(settings.maxSyncFileMb)
+        previewDelayText = String(settings.previewDelayMs)
         incognito = await core.isIncognito()
         autostart = LoginItem.isEnabled
         usageBytes = await core.historyDiskUsage()
@@ -190,6 +193,19 @@ final class SettingsModel {
         let clamped = min(max(raw, 1), 512)
         patch { $0.maxSyncFileMb = clamped }
         fileLimitText = String(clamped)
+    }
+
+    /// Save the preview card delay (ms, clamped to 0~5000 — the same range
+    /// the Tauri client accepts); invalid input rolls the display back
+    func savePreviewDelay() {
+        guard let raw = UInt32(previewDelayText.trimmingCharacters(in: .whitespaces)) else {
+            previewDelayText = String(settings.previewDelayMs)
+            NSSound.beep()
+            return
+        }
+        let clamped = min(raw, 5000)
+        patch { $0.previewDelayMs = clamped }
+        previewDelayText = String(clamped)
     }
 
     /// Rebind the panel hotkey (recorded or cleared)
