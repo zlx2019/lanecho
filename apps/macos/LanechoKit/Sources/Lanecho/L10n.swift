@@ -43,6 +43,19 @@ struct Texts: Sendable {
     let tabSync: String
     let tabStorage: String
     let tabHotkeys: String
+    let tabIgnore: String
+    let ignorePaneApps: String
+    let ignorePaneTypes: String
+    let ignorePaneRegex: String
+    let ignorePaneFiles: String
+    let ignoreAppsNote: String
+    let ignoreTypesNote: String
+    let ignoreRegexNote: String
+    let ignoreFilesNote: String
+    let ignoreSuppressSync: String
+    let ignoreSuppressRecord: String
+    let ignoreReset: String
+    let ignoreEmpty: String
     let deviceName: String
     let save: String
     let fingerprintLabel: String
@@ -293,6 +306,19 @@ extension Texts {
         tabSync: "同步",
         tabStorage: "存储",
         tabHotkeys: "快捷键",
+        tabIgnore: "忽略",
+        ignorePaneApps: "应用",
+        ignorePaneTypes: "剪贴板类型",
+        ignorePaneRegex: "正则表达式",
+        ignorePaneFiles: "文件",
+        ignoreAppsNote: "忽略来自这些应用的文本内容。",
+        ignoreTypesNote: "携带这些剪贴板类型标记的内容将被忽略; 预置列表覆盖常见密码管理器与临时内容标记。",
+        ignoreRegexNote: "按输入的正则在文本中搜索, 命中任一条即忽略; 需要精确匹配请用 ^ $ 锚定。",
+        ignoreFilesNote: "每行一条规则, # 开头为注释; 含 / 按完整路径匹配, 否则按文件名; 命中的文件被忽略, 其余文件照常处理。",
+        ignoreSuppressSync: "忽略同步",
+        ignoreSuppressRecord: "忽略记录",
+        ignoreReset: "重置",
+        ignoreEmpty: "暂无条目",
         deviceName: "设备名称",
         save: "保存",
         fingerprintLabel: "设备指纹",
@@ -306,9 +332,9 @@ extension Texts {
         unpairAction: "解除配对",
         notifyOnSync: "同步通知",
         notifyBundleNote: "系统通知在 .app 打包版中生效。",
-        incognitoLabel: "暂停记录(无痕)",
+        incognitoLabel: "暂停记录",
         incognitoNote: "只暂停本机历史记录, 不影响与其他设备的同步。",
-        portLabel: "TCP 端口",
+        portLabel: "运行端口",
         portRestartNote: "端口修改在下次启动时生效。",
         maxEntries: "历史条目上限",
         sortLabel: "排序方式",
@@ -350,7 +376,7 @@ extension Texts {
         notifySyncTitleFormat: "已从 {device} 同步",
         autostartLabel: "开机时启动",
         autostartUnavailable: "开机自启需要以 .app 形式安装后才可用。",
-        autoPasteLabel: "选中后自动粘贴",
+        autoPasteLabel: "自动粘贴",
         autoPasteNote: "从历史选中一条后, 自动向当前应用发送 ⌘V, 省去手动粘贴。需要辅助功能权限。",
         autoPastePermissionTitle: "需要辅助功能权限",
         autoPastePermissionBody:
@@ -420,6 +446,22 @@ extension Texts {
         tabSync: "Sync",
         tabStorage: "Storage",
         tabHotkeys: "Hotkeys",
+        tabIgnore: "Ignore",
+        ignorePaneApps: "Apps",
+        ignorePaneTypes: "Pasteboard Types",
+        ignorePaneRegex: "Regex",
+        ignorePaneFiles: "Files",
+        ignoreAppsNote: "Ignore text copied from these applications.",
+        ignoreTypesNote:
+            "Content carrying any of these pasteboard types is ignored; the preset list covers common password managers and transient markers.",
+        ignoreRegexNote:
+            "Patterns search the text as written; any hit ignores it. Anchor with ^ $ for an exact match.",
+        ignoreFilesNote:
+            "One rule per line, # starts a comment; a pattern with / matches the full path, otherwise the file name; matched files are dropped, the rest go through.",
+        ignoreSuppressSync: "Don't sync",
+        ignoreSuppressRecord: "Don't record",
+        ignoreReset: "Reset",
+        ignoreEmpty: "No entries",
         deviceName: "Device Name",
         save: "Save",
         fingerprintLabel: "Fingerprint",
@@ -433,9 +475,9 @@ extension Texts {
         unpairAction: "Unpair",
         notifyOnSync: "Sync notifications",
         notifyBundleNote: "System notifications take effect in the bundled .app build.",
-        incognitoLabel: "Pause recording (incognito)",
+        incognitoLabel: "Pause Recording",
         incognitoNote: "Pauses local history only; syncing with other devices continues.",
-        portLabel: "TCP Port",
+        portLabel: "Port",
         portRestartNote: "Port changes take effect on next launch.",
         maxEntries: "History limit",
         sortLabel: "Sort order",
@@ -477,7 +519,7 @@ extension Texts {
         notifySyncTitleFormat: "Synced from {device}",
         autostartLabel: "Launch at login",
         autostartUnavailable: "Launch at login requires the app to be installed as an .app.",
-        autoPasteLabel: "Paste after selecting",
+        autoPasteLabel: "Auto Paste",
         autoPasteNote: "Sends ⌘V to the frontmost app after you pick an entry. Requires accessibility permission.",
         autoPastePermissionTitle: "Accessibility permission required",
         autoPastePermissionBody:

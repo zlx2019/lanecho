@@ -18,6 +18,7 @@ pub mod avail;
 pub mod frontapp;
 pub mod sensitive;
 mod stamp;
+pub mod type_names;
 
 use std::path::PathBuf;
 
@@ -134,6 +135,43 @@ pub struct ClipboardEvent {
     pub hash: String,
     /// When the change was detected (Unix milliseconds), the LWW tiebreaker
     pub timestamp_ms: u64,
+    /// Pasteboard type / clipboard format snapshot taken at read time (the
+    /// ignore-rule type check must judge what was on the clipboard then, not
+    /// at whatever later moment the event is consumed). macOS: NSPasteboard
+    /// types; Windows: registered format names; Linux: always empty
+    pub pasteboard_types: Vec<String>,
+    /// Ignore verdict (set by the shell between watcher and engine): skip the
+    /// broadcast only — the LWW baseline still advances and LocalCopied still
+    /// fires
+    pub suppress_broadcast: bool,
+    /// Ignore verdict: skip the history recording (rides through the engine
+    /// into LocalCopied)
+    pub suppress_record: bool,
+    /// File-rule verdict (Files content only): paths to drop from the
+    /// broadcast — the rest of the batch still syncs, and dropping them all
+    /// skips the broadcast entirely. File rules filter rather than suppress:
+    /// copying a.yaml + b.png with *.yaml ignored must still sync b.png.
+    pub broadcast_files_excluded: Vec<std::path::PathBuf>,
+    /// File-rule verdict: paths to drop from the history recording (rides
+    /// through the engine into LocalCopied; same filtering semantics)
+    pub record_files_excluded: Vec<std::path::PathBuf>,
+}
+
+impl ClipboardEvent {
+    /// Event with no type snapshot and no ignore verdict (the CLI and the
+    /// contentless watcher paths; the shell's ingest fills the verdict in)
+    pub fn new(content: ClipboardContent, hash: String, timestamp_ms: u64) -> Self {
+        Self {
+            content,
+            hash,
+            timestamp_ms,
+            pasteboard_types: Vec::new(),
+            suppress_broadcast: false,
+            suppress_record: false,
+            broadcast_files_excluded: Vec::new(),
+            record_files_excluded: Vec::new(),
+        }
+    }
 }
 
 /// Hash of text content (same format as the Text branch of
@@ -363,11 +401,8 @@ pub fn spawn_watcher(
                     // real content, and keeping it would swallow the next entry
                     last_hash = None;
                     let content = ClipboardContent::ImageUnread;
-                    let event = ClipboardEvent {
-                        hash: content.hash(),
-                        content,
-                        timestamp_ms: now_ms(),
-                    };
+                    let hash = content.hash();
+                    let event = ClipboardEvent::new(content, hash, now_ms());
                     if tx.send(event).await.is_err() {
                         return;
                     }
@@ -388,10 +423,20 @@ pub fn spawn_watcher(
             }
             last_hash = Some(hash.clone());
             tracing::debug!(kind = content.kind(), "检测到剪贴板变化");
+            // Type snapshot for the ignore rules, taken right after the read
+            // (a lightweight query, same calling model as the concealed
+            // check; the microsecond gap to the read is dwarfed by the
+            // polling interval itself)
+            let pasteboard_types = type_names::read();
             let event = ClipboardEvent {
                 content,
                 hash,
                 timestamp_ms: now_ms(),
+                pasteboard_types,
+                suppress_broadcast: false,
+                suppress_record: false,
+                broadcast_files_excluded: Vec::new(),
+                record_files_excluded: Vec::new(),
             };
             if tx.send(event).await.is_err() {
                 return;

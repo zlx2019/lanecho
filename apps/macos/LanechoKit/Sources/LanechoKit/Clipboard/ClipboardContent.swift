@@ -76,12 +76,40 @@ public struct ClipboardEvent: Sendable {
     public var hash: String
     /// When the change was detected (Unix milliseconds); the LWW tiebreaker
     public var timestampMs: UInt64
+    /// Pasteboard type snapshot taken at read time (the ignore-rule type
+    /// check has to run against what was on the pasteboard then, not at
+    /// whatever later moment the event is consumed)
+    public var pasteboardTypes: [String]
+    /// Ignore verdict: skip the broadcast (the LWW baseline still advances
+    /// and localCopied still fires)
+    public var suppressBroadcast: Bool
+    /// Ignore verdict: skip the history recording (rides through the engine
+    /// into localCopied)
+    public var suppressRecord: Bool
+    /// File-rule verdict (files content only): paths to drop from the
+    /// broadcast — the rest of the batch still syncs, and dropping them all
+    /// skips the broadcast. File rules filter rather than suppress: copying
+    /// a.yaml + b.png with *.yaml ignored must still sync b.png.
+    public var broadcastFilesExcluded: [String]
+    /// File-rule verdict: paths to drop from the history recording (rides
+    /// through the engine into localCopied; same filtering semantics)
+    public var recordFilesExcluded: [String]
 
     /// Field-wise initializer
-    public init(content: ClipboardContent, hash: String, timestampMs: UInt64) {
+    public init(
+        content: ClipboardContent, hash: String, timestampMs: UInt64,
+        pasteboardTypes: [String] = [],
+        suppressBroadcast: Bool = false, suppressRecord: Bool = false,
+        broadcastFilesExcluded: [String] = [], recordFilesExcluded: [String] = []
+    ) {
         self.content = content
         self.hash = hash
         self.timestampMs = timestampMs
+        self.pasteboardTypes = pasteboardTypes
+        self.suppressBroadcast = suppressBroadcast
+        self.suppressRecord = suppressRecord
+        self.broadcastFilesExcluded = broadcastFilesExcluded
+        self.recordFilesExcluded = recordFilesExcluded
     }
 }
 

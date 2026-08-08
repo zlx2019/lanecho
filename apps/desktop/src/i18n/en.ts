@@ -14,7 +14,27 @@ export const en = {
     devices: "Devices",
     sync: "Sync",
     storage: "Storage",
+    ignore: "Ignore",
     hotkeys: "Hotkeys",
+  },
+  ignore: {
+    paneApps: "Apps",
+    paneTypes: "Pasteboard Types",
+    paneRegex: "Regex",
+    paneFiles: "Files",
+    appsNote: "Ignore text copied from these applications.",
+    appsUnsupported: "This platform cannot identify the source application; the rule is unavailable.",
+    typesNote:
+      "Content carrying any of these clipboard types is ignored; the preset list covers common password managers and transient markers.",
+    regexNote:
+      "Patterns search the text as written; any hit ignores it. Anchor with ^ $ for an exact match.",
+    filesNote:
+      "One rule per line, # starts a comment; a pattern with / matches the full path, otherwise the file name; matched files are dropped, the rest go through.",
+    suppressSync: "Don't sync",
+    suppressRecord: "Don't record",
+    reset: "Reset",
+    empty: "No entries",
+    inlinePlaceholder: "Type and press Enter to add, Esc to cancel",
   },
   sync: {
     toggle: "Clipboard sync",
@@ -153,6 +173,7 @@ export const en = {
     rename_failed: "Failed to update device name",
     engine: "Engine error",
     hotkey_invalid: "Hotkey is invalid or already taken",
+    app_resolve_failed: "Could not identify the selected application",
     history_missing: "History entry is missing or corrupted",
     files_missing: "Source files were moved or deleted",
     clipboard_write_failed: "Failed to write to the clipboard",

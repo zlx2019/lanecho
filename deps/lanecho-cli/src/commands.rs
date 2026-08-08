@@ -339,11 +339,7 @@ async fn handle_line(
                 rgba,
             };
             let hash = content.hash();
-            let event = ClipboardEvent {
-                content,
-                hash,
-                timestamp_ms: now_ms(),
-            };
+            let event = ClipboardEvent::new(content, hash, now_ms());
             if clip_tx.send(event).await.is_ok() {
                 output::info(&format!("已注入图像 {width}x{height}(模拟复制)"));
             }
@@ -362,11 +358,7 @@ async fn handle_line(
             } else {
                 let content = ClipboardContent::Files(paths);
                 let hash = content.hash();
-                let event = ClipboardEvent {
-                    content,
-                    hash,
-                    timestamp_ms: now_ms(),
-                };
+                let event = ClipboardEvent::new(content, hash, now_ms());
                 if clip_tx.send(event).await.is_ok() {
                     output::info("已注入文件(模拟复制)");
                 }
@@ -382,11 +374,7 @@ async fn handle_line(
             // same engine path as a real clipboard change
             let content = ClipboardContent::Text(line.to_string());
             let hash = content.hash();
-            let event = ClipboardEvent {
-                content,
-                hash,
-                timestamp_ms: now_ms(),
-            };
+            let event = ClipboardEvent::new(content, hash, now_ms());
             if clip_tx.send(event).await.is_ok() {
                 output::info("已注入文本(模拟复制)");
             }

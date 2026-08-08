@@ -149,6 +149,19 @@ pub fn save_settings(
 
     // Everything below is an idempotent side effect, applied from the new
     // values
+    if old.ignore != settings.ignore {
+        *lock(&state.ignore_rules) = crate::ignore::IgnoreRules::new(&settings.ignore);
+        // Same cause and cure as record_resumed: content copied while a rule
+        // suppressed it already sits in the watcher's dedup baseline, so
+        // after loosening the rules, copying that same content again would
+        // be swallowed at the watcher and never re-judged. Any ignore change
+        // resets the baseline — over-resetting is harmless (one extra event
+        // for an identical copy), while a precise "did it loosen" analysis
+        // across four rule kinds is not worth the failure modes.
+        state
+            .reset_dedupe
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
     if old.autostart != settings.autostart {
         use tauri_plugin_autostart::ManagerExt;
         let launcher = app.autolaunch();
@@ -793,4 +806,80 @@ pub fn window_effects_active() -> bool {
 #[tauri::command]
 pub fn get_slot_hotkey_failures(state: State<'_, AppState>) -> Vec<u8> {
     lock(&state.slot_hotkey_failures).clone()
+}
+
+/// Pick an application through the system file dialog and resolve it into an
+/// ignore entry (macOS: .app bundle → bundle identifier; Windows: .exe →
+/// lowercased file name). Ok(None) when the user cancels, or on platforms
+/// with no application identity (Linux — the frontend hides the entry point).
+#[tauri::command]
+pub async fn pick_ignored_app(
+    app: tauri::AppHandle,
+) -> Result<Option<crate::settings::IgnoredApp>, ErrDto> {
+    // The blocking dialog variant parks this thread while the (main-thread)
+    // panel runs, so it must stay off the async runtime workers
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        use tauri_plugin_dialog::DialogExt;
+        let dialog = app.dialog().file();
+        #[cfg(target_os = "macos")]
+        let dialog = dialog
+            .add_filter("Application", &["app"])
+            .set_directory("/Applications");
+        #[cfg(windows)]
+        let dialog = dialog.add_filter("Application", &["exe"]);
+        dialog.blocking_pick_file()
+    })
+    .await
+    .map_err(|e| ErrDto::with("app_resolve_failed", e))?;
+    let Some(path) = picked.and_then(|file| file.into_path().ok()) else {
+        return Ok(None);
+    };
+    resolve_app_entry(&path)
+        .map(Some)
+        .ok_or_else(|| ErrDto::new("app_resolve_failed"))
+}
+
+/// .app bundle → ignore entry: the bundle identifier is the matching key, the
+/// display name (falling back to the file name) is what the list shows
+#[cfg(target_os = "macos")]
+fn resolve_app_entry(path: &std::path::Path) -> Option<crate::settings::IgnoredApp> {
+    // autoreleasepool: NSBundle and its lookups return autoreleased objects
+    // and this runs on a pool-less blocking thread (project convention)
+    objc2::rc::autoreleasepool(|_| {
+        let ns_path = objc2_foundation::NSString::from_str(&path.to_string_lossy());
+        let bundle = objc2_foundation::NSBundle::bundleWithPath(&ns_path)?;
+        let id = bundle.bundleIdentifier()?.to_string();
+        let display_name = ["CFBundleDisplayName", "CFBundleName"]
+            .iter()
+            .find_map(|key| {
+                let key = objc2_foundation::NSString::from_str(key);
+                let value = bundle.objectForInfoDictionaryKey(&key)?;
+                value
+                    .downcast::<objc2_foundation::NSString>()
+                    .ok()
+                    .map(|s| s.to_string())
+            });
+        let name = display_name.unwrap_or_else(|| {
+            path.file_stem()
+                .map(|stem| stem.to_string_lossy().into_owned())
+                .unwrap_or_else(|| id.clone())
+        });
+        Some(crate::settings::IgnoredApp { id, name })
+    })
+}
+
+/// .exe → ignore entry: the lowercased file name is the matching key (there
+/// is no bundle identifier on Windows and the install path varies)
+#[cfg(windows)]
+fn resolve_app_entry(path: &std::path::Path) -> Option<crate::settings::IgnoredApp> {
+    let id = path.file_name()?.to_str()?.to_lowercase();
+    let name = path.file_stem()?.to_str()?.to_string();
+    Some(crate::settings::IgnoredApp { id, name })
+}
+
+/// No application identity on this platform (the frontend hides the entry
+/// point; this is defensive)
+#[cfg(not(any(target_os = "macos", windows)))]
+fn resolve_app_entry(_path: &std::path::Path) -> Option<crate::settings::IgnoredApp> {
+    None
 }

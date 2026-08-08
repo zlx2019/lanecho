@@ -65,6 +65,9 @@ public struct Settings: Codable, Sendable, Equatable {
     /// before the Tauri client grew the setting, saving from that side dropped
     /// this key entirely.
     public var autoPaste: Bool
+    /// Ignore rules (see IgnoreSettings; shared with the Tauri client under
+    /// the same nested keys)
+    public var ignore: IgnoreSettings
 
     /// Defaults (field for field identical to the Rust Default)
     public init(
@@ -77,7 +80,8 @@ public struct Settings: Codable, Sendable, Equatable {
         historySort: String = "recent", panelHotkey: String = "CmdOrCtrl+Shift+C",
         slotHotkeys: Bool = true, slotModifier: String = "CmdOrCtrl",
         previewDelayMs: UInt32 = 150,
-        autoPaste: Bool = false
+        autoPaste: Bool = false,
+        ignore: IgnoreSettings = IgnoreSettings()
     ) {
         self.tcpPort = tcpPort
         self.autostart = autostart
@@ -99,6 +103,7 @@ public struct Settings: Codable, Sendable, Equatable {
         self.slotModifier = slotModifier
         self.previewDelayMs = previewDelayMs
         self.autoPaste = autoPaste
+        self.ignore = ignore
     }
 
     /// Lenient decoding: any missing field takes its default (serde default
@@ -164,6 +169,9 @@ public struct Settings: Codable, Sendable, Equatable {
             ?? defaults.previewDelayMs
         autoPaste =
             try container.decodeIfPresent(Bool.self, forKey: .autoPaste) ?? defaults.autoPaste
+        ignore =
+            try container.decodeIfPresent(IgnoreSettings.self, forKey: .ignore)
+            ?? defaults.ignore
         normalize()
     }
 

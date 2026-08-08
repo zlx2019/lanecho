@@ -104,6 +104,43 @@ pub fn frontmost_app_name() -> Option<String> {
     None
 }
 
+/// Stable identifier of the frontmost application, the matching key of the
+/// ignore-by-application rule: the bundle identifier on macOS
+/// ("com.google.Chrome"; display names shift with the system language, the
+/// identifier does not)
+#[cfg(target_os = "macos")]
+pub fn frontmost_app_id() -> Option<String> {
+    objc2::rc::autoreleasepool(|_| {
+        let workspace = objc2_app_kit::NSWorkspace::sharedWorkspace();
+        let app = workspace.frontmostApplication()?;
+        // Same self-exemption as the name query: a restore write must not
+        // read as coming from this process
+        if app.processIdentifier() == std::process::id() as i32 {
+            return None;
+        }
+        app.bundleIdentifier().map(|id| id.to_string())
+    })
+}
+
+/// Stable identifier of the frontmost application: the lowercased executable
+/// file name on Windows ("chrome.exe" — there is no bundle identifier, and
+/// the full path varies per install)
+#[cfg(windows)]
+pub fn frontmost_app_id() -> Option<String> {
+    let path = frontmost_exe_path()?;
+    std::path::Path::new(&path)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .map(str::to_lowercase)
+}
+
+/// Stable identifier of the frontmost application; not implemented on Linux
+/// in v1, always None (the ignore-by-application rule cannot judge here)
+#[cfg(not(any(target_os = "macos", windows)))]
+pub fn frontmost_app_id() -> Option<String> {
+    None
+}
+
 /// Icon of the frontmost application (PNG bytes, the ~32px size): the image
 /// next to the source application on the preview card
 ///

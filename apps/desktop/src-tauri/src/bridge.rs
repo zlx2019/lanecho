@@ -18,7 +18,7 @@ use tauri_plugin_notification::NotificationExt;
 use tokio::sync::mpsc;
 
 use lanecho_core::DEFAULT_DISCOVERY_PORT;
-use lanecho_core::clipboard::{self, ClipboardContent, now_ms};
+use lanecho_core::clipboard::{self, ClipboardContent, ClipboardEvent, now_ms};
 use lanecho_core::protocol::PeerInfo;
 use lanecho_core::sync::{EngineConfig, EngineEvent, SyncEngine};
 
@@ -132,10 +132,25 @@ pub async fn start_engine(app: tauri::AppHandle, data_dir: PathBuf) -> anyhow::R
         settings.history_record_images || settings.sync_images,
     ));
     let reset_dedupe = Arc::new(AtomicBool::new(false));
+    // The watcher feeds the ingest hop rather than the engine directly: the
+    // ignore rules are evaluated in between (the Rust twin of the native
+    // client's AppCore.ingest). restore_hash is created up here because the
+    // ingest reads it to exempt restore writes from the application rule.
+    let restore_hash = Arc::new(Mutex::new(None));
+    let ignore_rules = Arc::new(Mutex::new(crate::ignore::IgnoreRules::new(
+        &settings.ignore,
+    )));
+    let (watch_tx, watch_rx) = mpsc::channel(16);
     clipboard::spawn_watcher(
-        clip_tx,
+        watch_tx,
         Arc::clone(&record_images),
         Arc::clone(&reset_dedupe),
+    );
+    spawn_ingest(
+        watch_rx,
+        clip_tx,
+        Arc::clone(&ignore_rules),
+        Arc::clone(&restore_hash),
     );
     let engine = Arc::new(engine);
     let history = Arc::new(
@@ -150,7 +165,6 @@ pub async fn start_engine(app: tauri::AppHandle, data_dir: PathBuf) -> anyhow::R
         tauri::async_runtime::spawn_blocking(move || history.sweep_orphan_sync_files());
     }
     let incognito = Arc::new(AtomicBool::new(false));
-    let restore_hash = Arc::new(Mutex::new(None));
     let (history_tx, history_worker) = spawn_history_worker(
         app.clone(),
         Arc::clone(&history),
@@ -183,9 +197,54 @@ pub async fn start_engine(app: tauri::AppHandle, data_dir: PathBuf) -> anyhow::R
         slot_hotkey_failures: Mutex::new(Vec::new()),
         hotkeys: Mutex::new(crate::state::ParsedHotkeys::default()),
         restore_hash,
+        ignore_rules,
         data_dir,
         history_worker: Mutex::new(Some(history_worker)),
     })
+}
+
+/// Watcher → engine, with the ignore rules evaluated in between
+///
+/// ImageUnread passes straight through (contentless, nothing to judge). A
+/// restore write (hash matching the registration) exempts the application
+/// rule only — the content does not come from whatever happens to be
+/// frontmost — while regex/type/file rules still apply, restoring being
+/// equivalent to copying. The registration itself is NOT consumed here: the
+/// pump still needs it to preserve the original source application.
+fn spawn_ingest(
+    mut watch_rx: mpsc::Receiver<ClipboardEvent>,
+    clip_tx: mpsc::Sender<ClipboardEvent>,
+    rules: Arc<Mutex<crate::ignore::IgnoreRules>>,
+    restore_hash: Arc<Mutex<Option<String>>>,
+) {
+    tauri::async_runtime::spawn(async move {
+        while let Some(mut event) = watch_rx.recv().await {
+            if !matches!(event.content, ClipboardContent::ImageUnread) {
+                let restored = lock(&restore_hash)
+                    .as_deref()
+                    .is_some_and(|registered| registered == event.hash);
+                // The frontmost query is a system call: made outside the
+                // rules lock, and only when some application rule could match
+                let source_app_id = if restored || !lock(&rules).wants_source_app() {
+                    None
+                } else {
+                    clipboard::frontapp::frontmost_app_id()
+                };
+                let verdict = lock(&rules).evaluate(
+                    &event.content,
+                    &event.pasteboard_types,
+                    source_app_id.as_deref(),
+                );
+                event.suppress_broadcast = verdict.suppress_sync;
+                event.suppress_record = verdict.suppress_record;
+                event.broadcast_files_excluded = verdict.broadcast_files_excluded;
+                event.record_files_excluded = verdict.record_files_excluded;
+            }
+            if clip_tx.send(event).await.is_err() {
+                return;
+            }
+        }
+    });
 }
 
 /// Dependencies of the event pump (all captured as Arc rather than reached
@@ -336,6 +395,8 @@ fn spawn_event_pump(deps: PumpDeps) {
                     content,
                     hash,
                     timestamp_ms,
+                    suppress_record,
+                    record_files_excluded,
                 } => {
                     if incognito.load(Ordering::Relaxed) {
                         continue;
@@ -360,6 +421,36 @@ fn spawn_event_pump(deps: PumpDeps) {
                     let restored = lock(&restore_hash)
                         .take()
                         .is_some_and(|restored_hash| restored_hash == hash);
+                    // Ignore rules: the record leg is cut, sync already went
+                    // its way. Placed after the restore registration is
+                    // consumed — an ignored restore must not leave it behind
+                    // to mislabel the next genuine copy
+                    if suppress_record {
+                        continue;
+                    }
+                    // File-rule filtering on the record leg: drop the
+                    // excluded paths and record the rest; the hash is
+                    // recomputed over the filtered list so dedup counts and
+                    // the restore registration stay consistent with what is
+                    // actually stored. Everything excluded means nothing to
+                    // record.
+                    let (content, hash) = if record_files_excluded.is_empty() {
+                        (content, hash)
+                    } else if let ClipboardContent::Files(paths) = &content {
+                        let kept: Vec<std::path::PathBuf> = paths
+                            .iter()
+                            .filter(|path| !record_files_excluded.contains(path))
+                            .cloned()
+                            .collect();
+                        if kept.is_empty() {
+                            continue;
+                        }
+                        let filtered = ClipboardContent::Files(kept);
+                        let hash = filtered.hash();
+                        (filtered, hash)
+                    } else {
+                        (content, hash)
+                    };
                     let source_app = if restored {
                         None
                     } else {

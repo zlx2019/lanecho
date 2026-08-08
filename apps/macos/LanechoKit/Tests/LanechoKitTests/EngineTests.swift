@@ -367,7 +367,7 @@ func orphanEchoExpiresInsteadOfSwallowingRealCopy() async throws {
     await b.engine.clipboardChanged(
         ClipboardEvent(content: .text(text), hash: hash, timestampMs: nowMs()))
     try await b.inspector.waitFor { event in
-        if case .localCopied(_, let h, _) = event { return h == hash }
+        if case .localCopied(_, let h, _, _, _) = event { return h == hash }
         return false
     }
 }
@@ -468,7 +468,7 @@ func imageSyncEndToEnd() async throws {
     }
     #expect(
         try await b.inspector.assertNever { event in
-            if case .localCopied(.image(_, _, _), _, _) = event { return true }
+            if case .localCopied(.image(_, _, _), _, _, _, _) = event { return true }
             return false
         })
     #expect(

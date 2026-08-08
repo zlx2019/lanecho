@@ -64,6 +64,49 @@ private func tempDir() -> URL {
     #expect(Settings.load(dataDir: dir) == settings)
 }
 
+/// Ignore rules: defaults carry the shared type list with sync suppressed and
+/// recording kept; stored values survive a decode; a partial object fills the
+/// gaps with defaults (serde default semantics)
+@Test func ignoreSettingsDefaultsAndDecoding() throws {
+    let defaults = IgnoreSettings()
+    #expect(defaults.types == IgnoreSettings.defaultTypes)
+    #expect(defaults.types.count == 6)
+    #expect(defaults.appsSync && defaults.typesSync && defaults.regexSync && defaults.filesSync)
+    #expect(
+        !defaults.appsRecord && !defaults.typesRecord && !defaults.regexRecord
+            && !defaults.filesRecord)
+
+    let json = """
+        {"apps":[{"id":"com.google.Chrome","name":"Chrome"}],"types":["custom.type"],\
+        "regexes":["^secret$"],"filePatterns":"*.key","appsSync":false,"appsRecord":true}
+        """
+    let decoded = try JSONDecoder().decode(IgnoreSettings.self, from: Data(json.utf8))
+    #expect(decoded.apps == [IgnoredApp(id: "com.google.Chrome", name: "Chrome")])
+    #expect(decoded.types == ["custom.type"])
+    #expect(decoded.regexes == ["^secret$"])
+    #expect(decoded.filePatterns == "*.key")
+    #expect(!decoded.appsSync && decoded.appsRecord)
+    #expect(decoded.typesSync && !decoded.typesRecord, "Absent toggles take the defaults")
+}
+
+/// Ignore rules ride settings.json round trips (the nested object is what the
+/// Tauri client carries as a passthrough)
+@Test func ignoreSettingsRoundtripInSettingsFile() throws {
+    let dir = tempDir()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    var settings = Settings()
+    settings.ignore.apps = [IgnoredApp(id: "com.apple.dt.Xcode", name: "Xcode")]
+    settings.ignore.regexes = ["^[a-zA-Z0-9]{50}$"]
+    settings.ignore.typesRecord = true
+    try settings.save(dataDir: dir)
+
+    let text = try String(
+        contentsOf: dir.appendingPathComponent("settings.json"), encoding: .utf8)
+    #expect(text.contains("\"ignore\""))
+    #expect(text.contains("\"filePatterns\""))
+    #expect(Settings.load(dataDir: dir) == settings)
+}
+
 /// Slot modifier: a stored choice survives, an unknown value normalizes back
 /// to CmdOrCtrl (same whitelist as the Tauri client) instead of producing an
 /// unregistrable shortcut

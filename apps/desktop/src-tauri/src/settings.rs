@@ -82,6 +82,88 @@ pub struct Settings {
     /// or renaming it here would wipe the native client's setting every time
     /// this one saves.
     pub auto_paste: bool,
+    /// Ignore rules (started on the native macOS client; carried here so a
+    /// save from this side does not wipe them — same lesson as `auto_paste`).
+    /// This client does not enforce them yet: UI and pipeline hooks are a
+    /// follow-up
+    pub ignore: IgnoreSettings,
+}
+
+/// One ignored source application (bundle identifier plus the display name
+/// frozen at add time)
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct IgnoredApp {
+    /// Bundle identifier ("com.google.Chrome")
+    pub id: String,
+    /// Display name shown by the settings page
+    pub name: String,
+}
+
+/// Ignore rules configuration (the `ignore` object; field-for-field identical
+/// to the native client's IgnoreSettings — the two clients share the file)
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct IgnoreSettings {
+    /// Applications whose text copies are ignored
+    pub apps: Vec<IgnoredApp>,
+    /// Pasteboard types that mark a change as ignored
+    pub types: Vec<String>,
+    /// Regular expressions searched against the text as written
+    pub regexes: Vec<String>,
+    /// File ignore rules, raw editor text (one simplified .gitignore pattern
+    /// per line)
+    pub file_patterns: String,
+    /// Application rule: suppress sync
+    pub apps_sync: bool,
+    /// Application rule: suppress history recording
+    pub apps_record: bool,
+    /// Type rule: suppress sync
+    pub types_sync: bool,
+    /// Type rule: suppress history recording
+    pub types_record: bool,
+    /// Regex rule: suppress sync
+    pub regex_sync: bool,
+    /// Regex rule: suppress history recording
+    pub regex_record: bool,
+    /// File rule: suppress sync
+    pub files_sync: bool,
+    /// File rule: suppress history recording
+    pub files_record: bool,
+}
+
+/// The default pasteboard type list (must stay identical to the native
+/// client's IgnoreSettings.defaultTypes: both clients fill it in when the
+/// field is absent, and differing defaults would flip-flop the file)
+const DEFAULT_IGNORE_TYPES: [&str; 6] = [
+    "de.petermaurer.TransientPasteboardType",
+    "org.nspasteboard.TransientType",
+    "org.nspasteboard.ConcealedType",
+    "com.agilebits.onepassword",
+    "net.antelle.keeweb",
+    "com.typeit4me.clipping",
+];
+
+impl Default for IgnoreSettings {
+    fn default() -> Self {
+        Self {
+            apps: Vec::new(),
+            types: DEFAULT_IGNORE_TYPES
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
+            regexes: Vec::new(),
+            file_patterns: String::new(),
+            apps_sync: true,
+            apps_record: false,
+            types_sync: true,
+            types_record: false,
+            regex_sync: true,
+            regex_record: false,
+            files_sync: true,
+            files_record: false,
+        }
+    }
 }
 
 impl Default for Settings {
@@ -107,6 +189,7 @@ impl Default for Settings {
             slot_modifier: "CmdOrCtrl".to_string(),
             preview_delay_ms: 150,
             auto_paste: false,
+            ignore: IgnoreSettings::default(),
         }
     }
 }
@@ -291,6 +374,59 @@ mod tests {
             settings.slot_modifier, "CmdOrCtrl",
             "The default slot modifier resolves to Cmd on macOS and Ctrl on Windows"
         );
+    }
+
+    /// Cross-client golden sample for the ignore rules: the native macOS
+    /// client owns this object; a load/save round trip from this side must
+    /// keep every nested key intact (camelCase spelling included), and an
+    /// absent object fills in the shared default type list
+    #[test]
+    fn ignore_rules_survive_a_round_trip_with_the_native_client() {
+        let settings = load_from_json(
+            r#"{"ignore":{"apps":[{"id":"com.google.Chrome","name":"Chrome"}],
+                "types":["custom.type"],"regexes":["^secret$"],
+                "filePatterns":"*.key","appsSync":false,"appsRecord":true}}"#,
+        );
+        assert_eq!(settings.ignore.apps.len(), 1);
+        assert_eq!(settings.ignore.apps[0].id, "com.google.Chrome");
+        assert_eq!(settings.ignore.types, vec!["custom.type"]);
+        assert_eq!(settings.ignore.regexes, vec!["^secret$"]);
+        assert_eq!(settings.ignore.file_patterns, "*.key");
+        assert!(!settings.ignore.apps_sync, "Stored toggles must win");
+        assert!(settings.ignore.apps_record);
+        assert!(
+            settings.ignore.types_sync,
+            "Absent toggles take the defaults"
+        );
+
+        let json = serde_json::to_string(&settings).unwrap();
+        let raw: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let ignore = raw.get("ignore").expect("the ignore object must persist");
+        for key in [
+            "apps",
+            "types",
+            "regexes",
+            "filePatterns",
+            "appsSync",
+            "appsRecord",
+            "typesSync",
+            "typesRecord",
+            "regexSync",
+            "regexRecord",
+            "filesSync",
+            "filesRecord",
+        ] {
+            assert!(
+                ignore.get(key).is_some(),
+                "The native client reads camelCase key {key}"
+            );
+        }
+
+        // An absent object fills in the shared defaults, type list included
+        let settings = load_from_json("{}");
+        assert_eq!(settings.ignore.types.len(), 6);
+        assert!(settings.ignore.types_sync);
+        assert!(!settings.ignore.types_record);
     }
 
     /// Cross-client golden sample for the slot modifier: the key is spelled

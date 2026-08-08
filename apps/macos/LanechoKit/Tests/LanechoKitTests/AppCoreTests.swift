@@ -313,3 +313,83 @@ func shutdownDrainsPendingHistoryJobs() async throws {
     let texts = await store.list(sort: "recent").compactMap(\.text)
     #expect(texts == [text], "History jobs queued before shutdown must reach disk")
 }
+
+/// Ignore verdict, sync leg: a suppressBroadcast event is recorded into the
+/// local history but never reaches the peer (the flag rides the event through
+/// the engine's outbound gate)
+@Test(
+    .enabled(if: MulticastAvailability.isAvailable, MulticastAvailability.skipReason),
+    .timeLimit(.minutes(2)))
+func ignoreSuppressesSyncButStillRecords() async throws {
+    let port = UInt16.random(in: 42600...42999)
+    let a = try await CoreNode.start(discoveryPort: port)
+    let b = try await CoreNode.start(discoveryPort: port)
+    defer { Task { await a.stop() } }
+    defer { Task { await b.stop() } }
+    try await pairCores(a, b)
+
+    let text = "ignored for sync"
+    await a.core.engine.clipboardChanged(
+        ClipboardEvent(
+            content: .text(text), hash: hashText(text), timestampMs: nowMs(),
+            suppressBroadcast: true))
+    try await a.log.waitFor("local record of the suppressed copy") {
+        if case .historyChanged = $0 { true } else { false }
+    }
+    #expect(
+        await a.core.historyList().count == 1,
+        "Suppressing sync must leave the history recording alone")
+    // The recording landed, so a broadcast would long since have been sent;
+    // one settle beat and the peer must still have seen nothing
+    try await Task.sleep(for: .milliseconds(500))
+    #expect(
+        b.clipboard.written().isEmpty,
+        "A suppressBroadcast event must never reach the peer")
+}
+
+/// Ignore verdict, record leg: a suppressRecord event syncs to the peer as
+/// usual but leaves no local history entry (the flag rides localCopied into
+/// the pump)
+@Test(
+    .enabled(if: MulticastAvailability.isAvailable, MulticastAvailability.skipReason),
+    .timeLimit(.minutes(2)))
+func ignoreSuppressesRecordButStillSyncs() async throws {
+    let port = UInt16.random(in: 42600...42999)
+    let a = try await CoreNode.start(discoveryPort: port)
+    let b = try await CoreNode.start(discoveryPort: port)
+    defer { Task { await a.stop() } }
+    defer { Task { await b.stop() } }
+    try await pairCores(a, b)
+
+    let text = "ignored for recording"
+    await a.core.engine.clipboardChanged(
+        ClipboardEvent(
+            content: .text(text), hash: hashText(text), timestampMs: nowMs(),
+            suppressRecord: true))
+    try await b.clipboard.waitFor(text)
+    // The sync round trip is complete; give the history worker a beat and
+    // confirm the sender recorded nothing
+    try await Task.sleep(for: .milliseconds(300))
+    #expect(
+        await a.core.historyList().isEmpty,
+        "A suppressRecord event must not enter the sender's history")
+}
+
+/// Ignore verdict, file filtering on the record leg: excluded paths are
+/// dropped from the history entry and the rest of the batch records (with
+/// the hash recomputed over what is stored)
+@Test(.timeLimit(.minutes(1)))
+func excludedFilesAreFilteredFromTheRecording() async throws {
+    let node = try await CoreNode.start(discoveryPort: UInt16.random(in: 42600...42999))
+    defer { Task { await node.stop() } }
+
+    let content = ClipboardContent.files(["/tmp/secret.yaml", "/tmp/photo.png"])
+    var event = ClipboardEvent(content: content, hash: content.hash(), timestampMs: nowMs())
+    event.recordFilesExcluded = ["/tmp/secret.yaml"]
+    await node.core.engine.clipboardChanged(event)
+    try await node.log.waitFor("filtered record") {
+        if case .historyChanged = $0 { true } else { false }
+    }
+    let entry = try #require(await node.core.historyList().first)
+    #expect(entry.files == ["/tmp/photo.png"], "命中的文件不入历史, 其余照常记录")
+}

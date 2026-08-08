@@ -116,8 +116,12 @@ public enum EngineEvent: Sendable {
     /// A pairing was removed (locally, or on notice from the peer)
     case unpaired(fingerprint: String)
     /// The local user copied something new (the history pipeline and the UI
-    /// hints hang off this event)
-    case localCopied(content: ClipboardContent, hash: String, timestampMs: UInt64)
+    /// hints hang off this event); suppressRecord and recordFilesExcluded are
+    /// the ignore-rule verdicts riding through from the shell (see
+    /// ClipboardEvent)
+    case localCopied(
+        content: ClipboardContent, hash: String, timestampMs: UInt64, suppressRecord: Bool,
+        recordFilesExcluded: [String])
     /// A remote sync was accepted; the shell layer should write it to the
     /// system clipboard (contract in the file header)
     ///
@@ -425,22 +429,34 @@ public actor SyncEngine {
         // just copied here
         lastLocalCopyMs = max(lastLocalCopyMs, event.timestampMs)
         // Each of the three content kinds has its own sync pipeline (1.1); the
-        // history pipeline consumes localCopied for all of them
+        // history pipeline consumes localCopied for all of them.
+        // suppressBroadcast is the ignore-rule verdict: the baseline above
+        // still advanced and localCopied still fires, only the outbound leg
+        // is cut
         var outbound = Outbound.none
-        if sendEnabled {
+        if sendEnabled && !event.suppressBroadcast {
             switch event.content {
             case .text(let text) where types.text && text.utf8.count <= Config.maxSyncTextBytes:
                 outbound = .text(text)
             case .image(let width, let height, let rgba) where types.images:
                 outbound = .image(width, height, rgba)
             case .files(let paths) where types.files:
-                outbound = .files(paths)
+                // File-rule filtering: drop the excluded paths and keep
+                // syncing the rest; everything excluded means nothing to
+                // broadcast (the LWW baseline advanced above regardless)
+                let kept = paths.filter { !event.broadcastFilesExcluded.contains($0) }
+                if !kept.isEmpty {
+                    outbound = .files(kept)
+                }
             default:
                 break
             }
         }
         events.yield(
-            .localCopied(content: event.content, hash: event.hash, timestampMs: event.timestampMs))
+            .localCopied(
+                content: event.content, hash: event.hash, timestampMs: event.timestampMs,
+                suppressRecord: event.suppressRecord,
+                recordFilesExcluded: event.recordFilesExcluded))
         switch outbound {
         case .none:
             break
