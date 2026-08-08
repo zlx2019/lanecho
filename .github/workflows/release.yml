@@ -13,6 +13,13 @@ jobs:
   changelog:
     name: Changelog
     runs-on: ubuntu-latest
+    # The bundle jobs feed the changelog back to tauri-action: on an existing
+    # release it always PATCHes name+body with its own inputs (see
+    # create-release.ts "Updating name and body of existing release"), so
+    # leaving releaseBody unset had every bundle job wipe the changelog this
+    # job just wrote
+    outputs:
+      content: ${{ steps.cliff.outputs.content }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -28,10 +35,17 @@ jobs:
           fi
 
       - name: Generate changelog
+        id: cliff
         uses: orhun/git-cliff-action@v4
         with:
           config: cliff.toml
-          args: ${{ contains(github.ref_name, '-') && format('--unreleased --tag {0}', github.ref_name) || '--latest' }} --strip header
+          # --current, not --latest: --latest means "the newest tag in the
+          # repository" regardless of the checked-out HEAD, so re-running this
+          # job after newer tags exist would write another version's
+          # changelog onto this release (it did — v0.1.0 briefly carried
+          # v0.1.1's notes). --current resolves the tag HEAD sits on, which
+          # is identical on a fresh tag push and stays correct on a re-run.
+          args: ${{ contains(github.ref_name, '-') && format('--unreleased --tag {0}', github.ref_name) || '--current' }} --strip header
         env:
           OUTPUT: CHANGES.md
           GITHUB_REPO: ${{ github.repository }}
@@ -126,6 +140,16 @@ jobs:
           tagName: ${{ github.ref_name }}
           args: ${{ matrix.args }}
           releaseAssetNamePattern: ${{ matrix.asset_name_pattern }}
+          # tauri-action PATCHes name+body onto an existing release whatever
+          # happens, so it must be handed the same changelog the release was
+          # created with — otherwise each bundle job resets the body to empty.
+          # releaseName/prerelease guard the same PATCH (and the create path,
+          # reachable when a bundle job is re-run against a deleted release):
+          # unset they would blank the title and promote an rc to a full
+          # release
+          releaseName: ${{ github.ref_name }}
+          releaseBody: ${{ needs.changelog.outputs.content }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
 
   macos-native:
     name: Bundle macOS (native)
