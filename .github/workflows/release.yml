@@ -39,7 +39,13 @@ jobs:
         uses: orhun/git-cliff-action@v4
         with:
           config: cliff.toml
-          args: ${{ contains(github.ref_name, '-') && format('--unreleased --tag {0}', github.ref_name) || '--latest' }} --strip header
+          # --current, not --latest: --latest means "the newest tag in the
+          # repository" regardless of the checked-out HEAD, so re-running this
+          # job after newer tags exist would write another version's
+          # changelog onto this release (it did — v0.1.0 briefly carried
+          # v0.1.1's notes). --current resolves the tag HEAD sits on, which
+          # is identical on a fresh tag push and stays correct on a re-run.
+          args: ${{ contains(github.ref_name, '-') && format('--unreleased --tag {0}', github.ref_name) || '--current' }} --strip header
         env:
           OUTPUT: CHANGES.md
           GITHUB_REPO: ${{ github.repository }}
