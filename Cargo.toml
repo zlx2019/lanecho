@@ -72,6 +72,9 @@ objc2-foundation = { version = "0.3", features = [
     # Resolving a picked .app into its bundle identifier for the ignore rules
     # (desktop pick_ignored_app command)
     "NSBundle",
+    # NSWorkspace hands back an application URL when the ignore list looks an
+    # icon up by bundle identifier (core clipboard::frontapp)
+    "NSURL",
 ] }
 objc2-app-kit = { version = "0.3", features = [
     "NSPasteboard",

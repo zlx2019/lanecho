@@ -39,6 +39,36 @@ export function IgnorePane({
   // would save on every keystroke)
   const [fileText, setFileText] = useState(ignore.filePatterns);
   const draftRef = useRef<HTMLInputElement>(null);
+  // App icons (rule id → Blob URL). The ref is the source of truth ("" marks
+  // a failed or in-flight lookup so it is never retried); the state mirror
+  // only triggers the re-render. Revoked together on unmount.
+  const [appIcons, setAppIcons] = useState<Record<string, string>>({});
+  const appIconsRef = useRef(appIcons);
+
+  useEffect(() => {
+    if (!APPS_SUPPORTED) return;
+    for (const { id } of ignore.apps) {
+      if (appIconsRef.current[id] !== undefined) continue;
+      appIconsRef.current = { ...appIconsRef.current, [id]: "" };
+      api
+        .ignoredAppIconPng(id)
+        .then((buf) => {
+          const url = URL.createObjectURL(new Blob([buf], { type: "image/png" }));
+          appIconsRef.current = { ...appIconsRef.current, [id]: url };
+          setAppIcons(appIconsRef.current);
+        })
+        .catch(() => {
+          // No icon for this id (not installed here / never cached): the ""
+          // sentinel stays and the generic glyph stands
+        });
+    }
+  }, [ignore.apps]);
+  useEffect(
+    () => () => {
+      Object.values(appIconsRef.current).forEach((url) => url && URL.revokeObjectURL(url));
+    },
+    [],
+  );
 
   // The panel state resets on pane switch; the file editor follows external
   // changes only while not focused (it is the source of truth while editing)
@@ -180,6 +210,35 @@ export function IgnorePane({
                   selection === row.id ? "bg-sonar/20" : ""
                 }`}
               >
+                {/* self-center keeps the icon vertically centred without
+                    disturbing the name/id baseline alignment */}
+                {pane === "apps" &&
+                  (appIcons[row.id] ? (
+                    <img
+                      src={appIcons[row.id]}
+                      alt=""
+                      className="size-4 shrink-0 self-center rounded-[3px]"
+                    />
+                  ) : (
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      className="shrink-0 self-center text-mist"
+                    >
+                      <rect
+                        x="1.5"
+                        y="1.5"
+                        width="13"
+                        height="13"
+                        rx="3.5"
+                        stroke="currentColor"
+                        strokeWidth="1.2"
+                      />
+                      <circle cx="8" cy="8" r="2.2" fill="currentColor" opacity="0.5" />
+                    </svg>
+                  ))}
                 <span className="font-gauge truncate text-sm text-fog">{row.primary}</span>
                 {row.secondary && (
                   <span className="truncate text-[11px] text-mist">{row.secondary}</span>

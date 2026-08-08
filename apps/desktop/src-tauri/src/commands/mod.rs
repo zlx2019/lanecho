@@ -567,6 +567,41 @@ pub async fn app_icon_png(
     Ok(tauri::ipc::Response::new(bytes))
 }
 
+/// Ignore-list application icon PNG, keyed by the rule's matching id
+///
+/// On any failure the frontend falls back to a generic glyph, matching the
+/// native client.
+#[tauri::command]
+pub async fn ignored_app_icon_png(
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<tauri::ipc::Response, ErrDto> {
+    let history = std::sync::Arc::clone(&app.state::<AppState>().history);
+    let bytes = tauri::async_runtime::spawn_blocking(move || ignored_app_icon(&history, &id))
+        .await
+        .map_err(|e| ErrDto::with("engine", e))??;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// macOS: resolve the bundle identifier live against the installed
+/// applications (no cache involved — entries added before icons existed get
+/// theirs too)
+#[cfg(target_os = "macos")]
+fn ignored_app_icon(_history: &crate::history::HistoryStore, id: &str) -> Result<Vec<u8>, ErrDto> {
+    lanecho_core::clipboard::frontapp::app_icon_png_for_id(id)
+        .ok_or_else(|| ErrDto::new("app_resolve_failed"))
+}
+
+/// Windows (and defensively elsewhere): read the cache captured when the
+/// entry was added — the stored exe-name key cannot be resolved back to an
+/// executable path later
+#[cfg(not(target_os = "macos"))]
+fn ignored_app_icon(history: &crate::history::HistoryStore, id: &str) -> Result<Vec<u8>, ErrDto> {
+    history
+        .app_icon_png(id)
+        .map_err(|e| ErrDto::with("app_resolve_failed", e))
+}
+
 /// Show the preview card; the card calls this itself once it has measured its
 /// content. Placement and the focus protection live in lib.rs.
 ///
@@ -816,6 +851,8 @@ pub fn get_slot_hotkey_failures(state: State<'_, AppState>) -> Vec<u8> {
 pub async fn pick_ignored_app(
     app: tauri::AppHandle,
 ) -> Result<Option<crate::settings::IgnoredApp>, ErrDto> {
+    #[cfg(windows)]
+    let history = std::sync::Arc::clone(&app.state::<AppState>().history);
     // The blocking dialog variant parks this thread while the (main-thread)
     // panel runs, so it must stay off the async runtime workers
     let picked = tauri::async_runtime::spawn_blocking(move || {
@@ -834,9 +871,23 @@ pub async fn pick_ignored_app(
     let Some(path) = picked.and_then(|file| file.into_path().ok()) else {
         return Ok(None);
     };
-    resolve_app_entry(&path)
-        .map(Some)
-        .ok_or_else(|| ErrDto::new("app_resolve_failed"))
+    let entry = resolve_app_entry(&path).ok_or_else(|| ErrDto::new("app_resolve_failed"))?;
+    // Windows keeps the executable's icon now, while the full path is still
+    // known (the stored exe-name key cannot be resolved back to a path later);
+    // awaited so the icon the frontend fetches right after is already cached.
+    // Failure just means no icon — the entry itself stands.
+    #[cfg(windows)]
+    {
+        let entry_id = entry.id.clone();
+        let exe = path.to_string_lossy().into_owned();
+        let _ = tauri::async_runtime::spawn_blocking(move || {
+            if let Some(png) = lanecho_core::clipboard::frontapp::exe_icon_png(&exe) {
+                history.save_app_icon(&entry_id, &png);
+            }
+        })
+        .await;
+    }
+    Ok(Some(entry))
 }
 
 /// .app bundle → ignore entry: the bundle identifier is the matching key, the
