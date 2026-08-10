@@ -30,12 +30,14 @@ Pair two devices once. From then on, whatever you copy on one is ready to paste 
 - 🔗 **LAN P2P** — data travels directly between devices, with no server or cloud required.
 - ⚡ **Instant sync** — copied data is immediately synced to the clipboards of other devices and stored in history. Each copy propagates only once.
 - 📋 **Clipboard history** — open the history panel with a hotkey (default `Cmd/Ctrl+Shift+C`) and quickly select previously copied content. Use `Cmd/Ctrl+1..6` (modifier configurable) to put any of the top six entries straight back on the clipboard. Hover an entry to view its details.
+- ⌨️ **Paste after selecting** — optionally, picking an entry also sends the paste keystroke to the app you came from (off by default; macOS asks for the Accessibility permission).
 - 🖼️ **Multiple content types** — record and sync text, screenshots, and files.
 - 📡 **Zero-config discovery** — mDNS with a UDP multicast fallback; nearby devices just show up, on any subnet your LAN routes.
 - 🤝 **Pair once** — explicitly pair both devices once; the pairing remains valid until either side removes it.
 - ↔️ **Directional sync** — set this client to two-way, send-only, receive-only, or off. The selected direction applies to all of its paired devices.
 - 🔐 **Secure by default** — TLS 1.3 mutual authentication with certificate-pinned identities; sync only ever reaches devices you explicitly paired.
 - 🛡️ **Password-manager aware** — entries carrying the standard "concealed" clipboard markers (1Password, Keychain, the Windows cloud-clipboard convention, …) are never recorded and never leave the machine.
+- 🚫 **Ignore rules** — keep content out with your own rules: by source app, clipboard type marker, text pattern (regex), or file name pattern, each blocking syncing, recording, or both.
 - 🍎 **Native macOS client** — a native macOS client built with Swift and AppKit.
 
 ### What travels between devices
@@ -52,7 +54,7 @@ Grab a build from [Releases](https://github.com/zlx2019/lanecho/releases).
 
 ### 🍎 macOS
 
-**Use the native client.** It is written in Swift and AppKit with no web view in the process — leaner in memory, and it behaves the way a Mac app should: the panel never steals focus from whatever you were typing in, and it can paste for you the moment you pick an entry.
+**Use the native client.** It is written in Swift and AppKit with no web view in the process — leaner in memory, and it behaves the way a Mac app should: the panel never steals focus from whatever you were typing in.
 
 | Build | Requires | Artifact |
 |---|---|---|
@@ -77,6 +79,7 @@ Lanecho is local-first by design; still, a clipboard tool deserves explicit fine
 
 - **Nothing leaves your LAN.** Sync traffic goes device-to-device over TLS 1.3, only to devices you paired. There is no server and no telemetry.
 - **Concealed content is exempt.** Entries carrying the standard markers (macOS `org.nspasteboard.ConcealedType`, Windows `ExcludeClipboardContentFromMonitorProcessing`) are neither recorded nor synced. On Linux these markers are not detected — pause syncing from the panel, or turn on incognito mode, when handling secrets there.
+- **Your own rules on top.** Some password managers set no marker at all — Apple's own Passwords app among them — so the exemption above cannot see them. Add an ignore rule for the app (or a clipboard type, text pattern, or file name pattern) and choose per rule whether it blocks syncing, recording, or both.
 - **History is stored in plain files** (a JSON index plus image blobs) under your OS app-data directory, unencrypted. Anyone with access to your user account can read it. Cap the entry count, turn on incognito mode, or clear the history from the panel at any time.
 - **Recording and syncing are independent.** Text, images and files each have separate recording and sync switches; this client's direction mode applies to all of its paired devices.
 
@@ -87,6 +90,9 @@ The build is not notarized yet. Right-click → Open once, or clear the quaranti
 
 **Devices never show up on macOS.**
 macOS 15+ asks for **Local Network** permission on first launch — it must be allowed, otherwise discovery fails silently. Re-enable it under System Settings → Privacy & Security → Local Network.
+
+**Paste-after-selecting stopped working after an update (macOS).**
+Unsigned builds tie the Accessibility grant to the exact binary, so every update invalidates it — and re-ticking the stale entry does nothing. Remove Lanecho under System Settings → Privacy & Security → Accessibility, launch the app again, grant the fresh entry, then quit and relaunch Lanecho. Signed releases will make this go away.
 
 **Devices never show up on Windows.**
 Discovery needs an inbound firewall rule. The NSIS installer registers it automatically; if you run a portable binary instead, allow `Lanecho.exe` for private networks when Windows asks.
