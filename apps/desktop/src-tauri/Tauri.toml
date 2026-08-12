@@ -76,6 +76,14 @@ icon = [
 
 [bundle.macos]
 minimumSystemVersion = "10.15"
+# Ad-hoc signing ("-"): with no identity at all the bundler skips codesign
+# entirely, and a quarantined app without a bundle seal is rejected by
+# Gatekeeper as "damaged" with no Open Anyway escape hatch (the native
+# client's build-app.sh signs the same way and gets the normal unidentified-
+# developer flow). A real certificate still wins: the CLI prefers the
+# APPLE_SIGNING_IDENTITY env var over this value, which is what CI exports
+# once Developer ID signing lands.
+signingIdentity = "-"
 
 [bundle.windows.nsis]
 installMode = "perMachine"
