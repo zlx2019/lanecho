@@ -72,7 +72,10 @@ let package = Package(
         ),
         .testTarget(
             name: "LanechoKitTests",
-            dependencies: ["LanechoKit"],
+            // Lanecho (the UI shell) is here for the panel shortcut tests:
+            // which AppKit dispatch layer a shortcut hooks is real behaviour
+            // a pure-logic library test cannot pin down
+            dependencies: ["LanechoKit", "Lanecho"],
             resources: [
                 // Official BLAKE3 test vectors plus certificate and private
                 // key fixtures generated with openssl
