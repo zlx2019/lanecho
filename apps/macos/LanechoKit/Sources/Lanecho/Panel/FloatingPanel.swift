@@ -27,6 +27,11 @@ final class FloatingPanel: NSPanel {
     /// line". The app has no menu bar, so even ⌘Q has to be handled here.
     /// Every shortcut advertised must actually be implemented; the footer
     /// never hints at one that is not.
+    ///
+    /// Command-carrying shortcuts only: AppKit routes a key-down into the
+    /// key-equivalent chain only when it holds Command or Control, so an
+    /// Option-only shortcut placed here is dead code — ⌥P lives in
+    /// sendEvent below.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         // keyCode 51 = ⌫
@@ -39,13 +44,6 @@ final class FloatingPanel: NSPanel {
                 onDeleteShortcut?()
                 return true
             }
-        }
-        // ⌥P: the field editor would type it as π, so it has to be caught at
-        // this layer; charactersIgnoringModifiers still yields the base key
-        // when Option is held
-        if modifiers == .option, event.charactersIgnoringModifiers?.lowercased() == "p" {
-            onPinShortcut?()
-            return true
         }
         if modifiers == .command, let key = event.charactersIgnoringModifiers {
             switch key {
@@ -60,5 +58,22 @@ final class FloatingPanel: NSPanel {
             }
         }
         return super.performKeyEquivalent(with: event)
+    }
+
+    /// ⌥P: an Option-only key-down never reaches performKeyEquivalent
+    /// (verified by feeding synthesized events through NSApp.sendEvent), so
+    /// it must be caught on sendEvent — the path every key-down does take —
+    /// before the field editor types it into the search field as π.
+    /// charactersIgnoringModifiers still yields the base key under Option;
+    /// repeats are dropped so holding the key does not flap the pin state.
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .keyDown, !event.isARepeat,
+            event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .option,
+            event.charactersIgnoringModifiers?.lowercased() == "p"
+        {
+            onPinShortcut?()
+            return
+        }
+        super.sendEvent(event)
     }
 }
