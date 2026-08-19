@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">lanecho</string>
+    <string name="share_target_label">Send to computer</string>
+
+    <string name="tab_history">History</string>
+    <string name="tab_devices">Devices</string>
+    <string name="tab_settings">Settings</string>
+
+    <string name="status_online">Online · %1$d device(s) connected</string>
+    <string name="status_no_peers">Online · no devices connected</string>
+    <string name="status_offline">Offline</string>
+
+    <string name="empty_history_title">Content copied on your computer shows up here</string>
+    <string name="empty_history_body">Receiving works only while lanecho is open; content copied while you are away is not backfilled.</string>
+    <string name="empty_go_pair">Pair a device</string>
+
+    <string name="banner_received_text">Received text from %1$s</string>
+    <string name="banner_received_image">Received an image from %1$s</string>
+    <string name="action_copy">Copy</string>
+    <string name="toast_copied">Copied</string>
+    <string name="toast_auto_written">Written to clipboard</string>
+    <string name="toast_sent_to">Clipboard sent to %1$d device(s)</string>
+
+    <string name="search_hint">Search history</string>
+    <string name="menu_detail">View details</string>
+    <string name="menu_pin">Pin</string>
+    <string name="menu_unpin">Unpin</string>
+    <string name="menu_share">Share…</string>
+    <string name="menu_delete">Delete</string>
+    <string name="menu_clear_history">Clear history…</string>
+    <string name="clear_confirm_title">Clear history?</string>
+    <string name="clear_confirm_body">All entries and images will be removed. Pinned entries are removed too.</string>
+    <string name="dialog_cancel">Cancel</string>
+    <string name="dialog_confirm">Confirm</string>
+
+    <string name="detail_title">Details</string>
+    <string name="detail_type">Type</string>
+    <string name="detail_type_text">Text · %1$s</string>
+    <string name="detail_type_image">Image</string>
+    <string name="detail_source">Source</string>
+    <string name="detail_source_local">This device</string>
+    <string name="detail_time">Time</string>
+    <string name="detail_count">Copies</string>
+
+    <string name="devices_paired">Paired</string>
+    <string name="devices_nearby">Nearby</string>
+    <string name="devices_online">online</string>
+    <string name="devices_offline">offline</string>
+    <string name="devices_hint">Can\'t find a device? Make sure the phone and the computer are on the same Wi-Fi and the desktop app is running.</string>
+    <string name="devices_unpair">Unpair</string>
+    <string name="devices_pairing">Waiting for the other side to confirm…</string>
+    <string name="devices_pair_failed">Pairing failed: %1$s</string>
+    <string name="devices_pair_refused">The other side refused the pairing</string>
+    <string name="pair_request_title">Pairing request</string>
+    <string name="pair_request_body">%1$s (%2$s) requests pairing</string>
+    <string name="pair_request_fingerprint">Fingerprint %1$s</string>
+    <string name="pair_request_check">Check that it matches what the computer shows</string>
+    <string name="pair_accept">Accept</string>
+    <string name="pair_refuse">Refuse</string>
+
+    <string name="settings_general">General</string>
+    <string name="settings_device_name">Device name</string>
+    <string name="settings_fingerprint">This device\'s fingerprint</string>
+    <string name="settings_sync">Sync</string>
+    <string name="settings_receive_text">Receive text</string>
+    <string name="settings_receive_images">Receive images</string>
+    <string name="settings_auto_write">Write received content to clipboard</string>
+    <string name="settings_auto_write_hint">Off = received content only lands in history; tap the banner to copy</string>
+    <string name="settings_send_on_open">Send clipboard when opening the app</string>
+    <string name="settings_port">Port</string>
+    <string name="settings_port_hint">Must match the desktop nodes; takes effect next time the app comes online</string>
+    <string name="settings_storage">Storage</string>
+    <string name="settings_history_limit">History limit</string>
+    <string name="settings_usage">Usage</string>
+    <string name="settings_clear">Clear</string>
+    <string name="settings_about">About</string>
+    <string name="settings_version">Version %1$s</string>
+    <string name="settings_save">Save</string>
+
+    <string name="share_title">Send to computer</string>
+    <string name="share_searching">Looking for devices…</string>
+    <string name="share_sending">Sending…</string>
+    <string name="share_sent">Delivered</string>
+    <string name="share_refused">Refused: %1$s</string>
+    <string name="share_unreachable">Offline, not sent</string>
+    <string name="share_no_devices">No online device found. Make sure the desktop app is running.</string>
+    <string name="share_retry">Retry</string>
+    <string name="share_done">Done</string>
+    <string name="share_no_paired">No paired devices yet. Open lanecho and pair one first.</string>
+</resources>

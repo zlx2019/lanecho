@@ -39,8 +39,15 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
       - name: Build lanecho-cli (interop peer)
         run: cargo build -p lanecho-cli
-      - name: Build and test
+      - name: Accept Android SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+      - name: Core tests and debug APK
         working-directory: apps/android
         env:
           LANECHO_CLI_BIN: ${{ github.workspace }}/target/debug/lanecho-cli
-        run: ./gradlew build --console=plain
+        run: ./gradlew :core:test :app:assembleDebug --console=plain
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: lanecho-android-debug
+          path: apps/android/app/build/outputs/apk/debug/app-debug.apk

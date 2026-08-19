@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">lanecho</string>
+    <string name="share_target_label">发送到电脑</string>
+
+    <string name="tab_history">历史</string>
+    <string name="tab_devices">设备</string>
+    <string name="tab_settings">设置</string>
+
+    <string name="status_online">在线 · 已连接 %1$d 台设备</string>
+    <string name="status_no_peers">在线 · 暂无连接设备</string>
+    <string name="status_offline">离线</string>
+
+    <string name="empty_history_title">电脑上复制的内容会出现在这里</string>
+    <string name="empty_history_body">仅在本应用打开期间接收；离开后电脑复制的内容不会补收。</string>
+    <string name="empty_go_pair">去配对设备</string>
+
+    <string name="banner_received_text">收到来自 %1$s 的文本</string>
+    <string name="banner_received_image">收到来自 %1$s 的图像</string>
+    <string name="action_copy">复制</string>
+    <string name="toast_copied">已复制</string>
+    <string name="toast_auto_written">已写入剪贴板</string>
+    <string name="toast_sent_to">已发送剪贴板到 %1$d 台设备</string>
+
+    <string name="search_hint">搜索历史</string>
+    <string name="menu_detail">查看详情</string>
+    <string name="menu_pin">固定</string>
+    <string name="menu_unpin">取消固定</string>
+    <string name="menu_share">分享…</string>
+    <string name="menu_delete">删除</string>
+    <string name="menu_clear_history">清空历史…</string>
+    <string name="clear_confirm_title">清空历史？</string>
+    <string name="clear_confirm_body">将删除全部条目与图像，固定条目也会一并删除。</string>
+    <string name="dialog_cancel">取消</string>
+    <string name="dialog_confirm">确认</string>
+
+    <string name="detail_title">详情</string>
+    <string name="detail_type">类型</string>
+    <string name="detail_type_text">文本 · %1$s</string>
+    <string name="detail_type_image">图像</string>
+    <string name="detail_source">来源</string>
+    <string name="detail_source_local">本机</string>
+    <string name="detail_time">时间</string>
+    <string name="detail_count">复制次数</string>
+
+    <string name="devices_paired">已配对</string>
+    <string name="devices_nearby">附近的设备</string>
+    <string name="devices_online">在线</string>
+    <string name="devices_offline">离线</string>
+    <string name="devices_hint">找不到设备？确认手机与电脑在同一 Wi-Fi 且桌面端正在运行。</string>
+    <string name="devices_unpair">解除配对</string>
+    <string name="devices_pairing">等待对方确认…</string>
+    <string name="devices_pair_failed">配对失败：%1$s</string>
+    <string name="devices_pair_refused">对方拒绝了配对</string>
+    <string name="pair_request_title">配对请求</string>
+    <string name="pair_request_body">%1$s（%2$s）请求配对</string>
+    <string name="pair_request_fingerprint">指纹 %1$s</string>
+    <string name="pair_request_check">请核对与电脑上显示的一致</string>
+    <string name="pair_accept">接受</string>
+    <string name="pair_refuse">拒绝</string>
+
+    <string name="settings_general">通用</string>
+    <string name="settings_device_name">设备名</string>
+    <string name="settings_fingerprint">本机指纹</string>
+    <string name="settings_sync">同步</string>
+    <string name="settings_receive_text">接收文本</string>
+    <string name="settings_receive_images">接收图像</string>
+    <string name="settings_auto_write">自动写入剪贴板</string>
+    <string name="settings_auto_write_hint">关闭时收到的内容只进历史，点横幅再复制</string>
+    <string name="settings_send_on_open">打开应用时发送剪贴板</string>
+    <string name="settings_port">端口</string>
+    <string name="settings_port_hint">须与桌面端一致；下次上线时生效</string>
+    <string name="settings_storage">存储</string>
+    <string name="settings_history_limit">历史上限</string>
+    <string name="settings_usage">占用</string>
+    <string name="settings_clear">清空</string>
+    <string name="settings_about">关于</string>
+    <string name="settings_version">版本 %1$s</string>
+    <string name="settings_save">保存</string>
+
+    <string name="share_title">发送到电脑</string>
+    <string name="share_searching">正在寻找设备…</string>
+    <string name="share_sending">正在发送…</string>
+    <string name="share_sent">已送达</string>
+    <string name="share_refused">被拒绝：%1$s</string>
+    <string name="share_unreachable">离线未发送</string>
+    <string name="share_no_devices">未发现在线设备，请确认电脑端正在运行。</string>
+    <string name="share_retry">重试</string>
+    <string name="share_done">完成</string>
+    <string name="share_no_paired">还没有已配对的设备，请先打开 lanecho 完成配对。</string>
+</resources>

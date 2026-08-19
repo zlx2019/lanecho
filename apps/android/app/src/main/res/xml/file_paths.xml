@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- history/blobs/<hash>.png handed to other apps when an image entry is
+         copied (clipboard image = content URI + read grant) -->
+    <files-path name="history_blobs" path="history/blobs/" />
+</paths>

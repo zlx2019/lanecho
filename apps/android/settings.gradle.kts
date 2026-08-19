@@ -15,6 +15,7 @@ dependencyResolutionManagement {
 
 rootProject.name = "lanecho-android"
 
-// :core is pure Kotlin/JVM (protocol/transport/history); the Android app
-// module arrives with the UI milestone and requires a local Android SDK.
+// :core is pure Kotlin/JVM (protocol/transport/history) and tests without an
+// Android SDK; :app is the Compose shell plus platform glue.
 include(":core")
+include(":app")
