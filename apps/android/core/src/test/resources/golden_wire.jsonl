@@ -1,0 +1,13 @@
+{"type":"hello","version":"1.1","info":{"device_id":"d1","name":"n1","fingerprint":"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff","platform":"macos","os_version":"macOS 15.3"}}
+{"type":"hello_ack","version":"1.1","info":{"device_id":"d1","name":"n1","fingerprint":"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff","platform":"macos"}}
+{"type":"pair_request"}
+{"type":"pair_response","accepted":true}
+{"type":"unpair"}
+{"type":"clipboard_sync","seq":7,"timestamp_ms":1752000000000,"content_type":"text","data":"  你好\n\t emoji🚀 \u0000 尾巴  "}
+{"type":"clipboard_sync","seq":1,"timestamp_ms":2,"content_type":"image","data":"{\"total_bytes\":123456,\"width\":640,\"height\":480}"}
+{"type":"clipboard_sync","seq":2,"timestamp_ms":3,"content_type":"files","data":"{\"total_bytes\":30,\"files\":[{\"name\":\"a.txt\",\"bytes\":10},{\"name\":\"b.bin\",\"bytes\":20}]}"}
+{"type":"blob_accept"}
+{"type":"blob_footer","hash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+{"type":"sync_ack"}
+{"type":"sync_rejected","reason_code":"not_paired"}
+{"type":"bye"}

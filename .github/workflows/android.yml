@@ -6,10 +6,18 @@ on:
     paths:
       - "apps/android/**"
       - ".github/workflows/android.yml"
+      - "deps/lanecho-core/**"
+      - "deps/lanecho-cli/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
   pull_request:
     paths:
       - "apps/android/**"
       - ".github/workflows/android.yml"
+      - "deps/lanecho-core/**"
+      - "deps/lanecho-cli/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
 
 concurrency:
   group: android-${{ github.ref }}
@@ -28,6 +36,11 @@ jobs:
           # JVM itself satisfies the toolchain and no probing is involved
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Build lanecho-cli (interop peer)
+        run: cargo build -p lanecho-cli
       - name: Build and test
         working-directory: apps/android
+        env:
+          LANECHO_CLI_BIN: ${{ github.workspace }}/target/debug/lanecho-cli
         run: ./gradlew build --console=plain
