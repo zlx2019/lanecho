@@ -1,0 +1,14 @@
+[versions]
+kotlin = "2.2.20"
+kotlinx-serialization = "1.9.0"
+bouncycastle = "1.81"
+
+[libraries]
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
+# Certificate building only (first-launch self-signed identity); never
+# registered as a JCA provider — signing goes through the platform provider
+bcpkix = { module = "org.bouncycastle:bcpkix-jdk18on", version.ref = "bouncycastle" }
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
