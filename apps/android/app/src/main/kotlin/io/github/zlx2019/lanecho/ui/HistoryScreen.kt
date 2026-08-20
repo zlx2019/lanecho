@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.outlined.TextSnippet
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
@@ -231,12 +232,23 @@ private fun HistoryRow(
                 )
             },
             trailingContent = {
-                if (entry.pinned) {
-                    Icon(
-                        Icons.Filled.PushPin, contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (entry.pinned) {
+                        Icon(
+                            Icons.Filled.PushPin, contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    // Direct route into the detail screen; tapping the row
+                    // itself stays "copy" (the highest-frequency action)
+                    IconButton(onClick = onOpenDetail) {
+                        Icon(
+                            Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                            contentDescription = stringResource(R.string.menu_detail),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                        )
+                    }
                 }
             },
         )

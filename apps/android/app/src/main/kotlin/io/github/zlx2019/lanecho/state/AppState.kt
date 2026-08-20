@@ -159,6 +159,9 @@ class AppState(val appContext: Context, val engine: Engine) : EngineListener {
      */
     fun seedDemoData() {
         worker.execute {
+            // Idempotence sentinel: relaunches from recents replay the launch
+            // intent (extra included), which must not re-bump every entry
+            if (engine.paired.isPaired("a1".repeat(32))) return@execute
             val now = System.currentTimeMillis()
             val history = engine.history
             val mac = "Zero 的 Mac mini"
