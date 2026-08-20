@@ -8,6 +8,8 @@ compose-bom = "2026.08.00"
 activity-compose = "1.13.0"
 core-ktx = "1.19.0"
 material-icons = "1.7.8"
+shizuku = "13.1.5"
+hiddenapibypass = "6.1"
 
 [libraries]
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
@@ -22,6 +24,11 @@ compose-material3 = { module = "androidx.compose.material3:material3" }
 compose-ui = { module = "androidx.compose.ui:ui" }
 compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
 material-icons-extended = { module = "androidx.compose.material:material-icons-extended", version.ref = "material-icons" }
+# Privileged clipboard access without root (K6 shizuku method)
+shizuku-api = { module = "dev.rikka.shizuku:api", version.ref = "shizuku" }
+shizuku-provider = { module = "dev.rikka.shizuku:provider", version.ref = "shizuku" }
+# Reflection onto the hidden IClipboard API the privileged service calls
+hiddenapibypass = { module = "org.lsposed.hiddenapibypass:hiddenapibypass", version.ref = "hiddenapibypass" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

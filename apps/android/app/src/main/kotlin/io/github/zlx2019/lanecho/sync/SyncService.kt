@@ -28,7 +28,10 @@ class SyncService : Service() {
         super.onCreate()
         running = true
         startForegroundCompat()
-        (application as LanechoApplication).appState.ensureOnline()
+        val state = (application as LanechoApplication).appState
+        state.ensureOnline()
+        // Background clipboard capture lives with the service (K6)
+        state.capture.refresh()
     }
 
     // START_STICKY: the system restarts the service after killing it under
@@ -38,6 +41,7 @@ class SyncService : Service() {
     override fun onDestroy() {
         running = false
         val state = (application as LanechoApplication).appState
+        state.capture.stop()
         if (!state.uiVisible) state.goOfflineNow()
         super.onDestroy()
     }

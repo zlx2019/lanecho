@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- LAN sync sockets -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -16,6 +17,14 @@
     <!-- Doze pauses background networking; the settings screen offers the
          exemption dialog (not Play-distributed, so the policy risk is moot) -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!-- Background clipboard capture (K6): the overlay takes focus so the
+         clipboard service treats us as foreground; READ_LOGS spots system
+         copy events (adb-granted only) -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission
+        android:name="android.permission.READ_LOGS"
+        tools:ignore="ProtectedPermissions" />
 
     <application
         android:name=".LanechoApplication"
@@ -61,6 +70,15 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+
+        <!-- Shizuku hands the privileged binder over through this provider -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="io.github.zlx2019.lanecho.shizuku"
+            android:multiprocess="false"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
         <!-- Image entries are copied into the clipboard as content URIs -->
         <provider

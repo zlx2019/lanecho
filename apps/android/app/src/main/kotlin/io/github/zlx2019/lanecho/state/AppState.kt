@@ -14,6 +14,7 @@ import io.github.zlx2019.lanecho.core.sync.EngineListener
 import io.github.zlx2019.lanecho.core.sync.PairedPeer
 import io.github.zlx2019.lanecho.platform.AndroidImageCodec
 import io.github.zlx2019.lanecho.R
+import io.github.zlx2019.lanecho.capture.ClipboardCapture
 import io.github.zlx2019.lanecho.platform.ClipboardPort
 import io.github.zlx2019.lanecho.platform.MulticastLockHolder
 import io.github.zlx2019.lanecho.platform.NsdDiscovery
@@ -50,7 +51,6 @@ class AppState(val appContext: Context, val engine: Engine) : EngineListener {
     var toast by mutableStateOf<String?>(null)
 
     private var offlineDebounce: Runnable? = null
-    private var sentOnThisForeground = false
 
     /** Whether any Activity is started; liveness = uiVisible OR SyncService. */
     var uiVisible = false
@@ -64,7 +64,6 @@ class AppState(val appContext: Context, val engine: Engine) : EngineListener {
 
     fun onForeground() {
         uiVisible = true
-        sentOnThisForeground = false
         ensureOnline()
         // The service outlives the UI and keeps receiving in the background
         if (engine.settings.current.backgroundOnline) SyncService.start(appContext)
@@ -112,20 +111,6 @@ class AppState(val appContext: Context, val engine: Engine) : EngineListener {
         }
     }
 
-    /** First window focus after coming to the foreground: DA3 upstream. */
-    fun onFocused() {
-        if (sentOnThisForeground || !engine.settings.current.sendOnOpen) return
-        sentOnThisForeground = true
-        // Clipboard reads require focus (Android 10+); broadcasting dials out
-        val text = ClipboardPort.readText(appContext) ?: return
-        worker.execute {
-            val delivered = engine.broadcastTextIfNew(text, System.currentTimeMillis())
-            if (delivered > 0) {
-                showToast(appContext.getString(io.github.zlx2019.lanecho.R.string.toast_sent_to, delivered))
-            }
-        }
-    }
-
     // ---- User actions ----
 
     /** Restore an entry: write the clipboard and broadcast (a restore is a copy). */
@@ -165,6 +150,30 @@ class AppState(val appContext: Context, val engine: Engine) : EngineListener {
 
     fun showToast(message: String) {
         mainHandler.post { toast = message }
+    }
+
+    // ---- Background capture (K6) ----
+
+    /** Lazily built so the engine exists first; the service drives it. */
+    val capture: ClipboardCapture by lazy { ClipboardCapture(this) }
+
+    /**
+     * A background capture read something: broadcast when it is genuinely new.
+     * Dedupe/echo suppression stay in the engine, so re-reads of unchanged
+     * content are free and remote-applied text never bounces back.
+     */
+    fun broadcastCaptured(text: String) {
+        worker.execute {
+            runCatching {
+                val delivered = engine.broadcastTextIfNew(text, System.currentTimeMillis())
+                // Length only: clipboard content never reaches the log
+                if (delivered > 0) {
+                    io.github.zlx2019.lanecho.core.util.Log.info(
+                        "captured ${text.length} chars, sent to $delivered device(s)",
+                    )
+                }
+            }.onFailure { io.github.zlx2019.lanecho.core.util.Log.warn("captured broadcast failed: ${it.message}") }
+        }
     }
 
     // ---- Demo seeding (UI review only) ----
@@ -216,6 +225,26 @@ class AppState(val appContext: Context, val engine: Engine) : EngineListener {
                 listOf("192.0.2.12"), 42524, now,
             )
             onHistoryChanged()
+        }
+    }
+
+    /**
+     * Debug-only: put a peer into the registry by hand, bypassing discovery.
+     * Emulators sit behind NAT so multicast and mDNS never reach the host —
+     * the only way to exercise a real sync there is to point the phone at a
+     * forwarded address (`adb reverse tcp:42524 tcp:42524`).
+     *
+     * `am start -n <pkg>/.MainActivity --es probe-peer "<fingerprint>@<host>:<port>"`
+     */
+    fun injectProbePeer(spec: String) {
+        val (fingerprint, endpoint) = spec.split("@", limit = 2).takeIf { it.size == 2 } ?: return
+        val (host, port) = endpoint.split(":", limit = 2).takeIf { it.size == 2 } ?: return
+        worker.execute {
+            engine.registry.seenMdns(
+                PeerInfo("probe-peer", "Probe", fingerprint, "probe", null),
+                listOf(host), port.toIntOrNull() ?: 42524, System.currentTimeMillis(),
+            )
+            io.github.zlx2019.lanecho.core.util.Log.info("probe peer injected at $host:$port")
         }
     }
 

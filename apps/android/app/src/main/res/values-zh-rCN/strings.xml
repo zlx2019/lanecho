@@ -20,7 +20,6 @@
     <string name="action_copy">复制</string>
     <string name="toast_copied">已复制</string>
     <string name="toast_auto_written">已写入剪贴板</string>
-    <string name="toast_sent_to">已发送剪贴板到 %1$d 台设备</string>
 
     <string name="search_hint">搜索历史</string>
     <string name="menu_detail">查看详情</string>
@@ -69,18 +68,25 @@
     <string name="settings_receive_text_short">文本</string>
     <string name="settings_receive_images_short">图像</string>
     <string name="settings_auto_write">自动复制</string>
-    <string name="settings_auto_write_hint">关闭时收到的内容只进历史，点横幅再复制</string>
-    <string name="settings_send_on_open">打开应用时发送剪贴板</string>
     <string name="settings_background_online">后台运行</string>
-    <string name="settings_background_online_hint">退到后台仍接收同步；会显示一条静默的常驻通知</string>
     <string name="settings_battery_opt">忽略电池优化</string>
     <string name="settings_battery_opt_hint">息屏后系统可能暂停接收，建议豁免</string>
     <string name="settings_battery_opt_done">已豁免</string>
+    <string name="settings_capture">同步策略</string>
+    <string name="settings_capture_off">关闭</string>
+    <string name="settings_capture_polling">定时轮询</string>
+    <string name="settings_capture_logs">复制事件</string>
+    <string name="settings_capture_shizuku">Shizuku</string>
+    <string name="settings_capture_ready">已生效 —— 复制后自动同步</string>
+    <string name="settings_capture_needs_overlay">点击开启悬浮窗权限（后台读取剪贴板必需）</string>
+    <string name="settings_capture_needs_logs">点击复制 adb 命令，在电脑上执行后重启应用</string>
+    <string name="settings_capture_needs_shizuku">Shizuku 未运行 —— 请先启动 Shizuku 应用</string>
+    <string name="settings_capture_needs_shizuku_grant">点击在 Shizuku 中授权 Lanecho</string>
+    <string name="settings_capture_command_copied">命令已复制 —— 请在电脑上执行</string>
     <string name="notif_channel_service">后台运行</string>
     <string name="notif_channel_incoming">收到的内容</string>
     <string name="notif_service_title">正在接收剪贴板同步</string>
     <string name="settings_port">端口</string>
-    <string name="settings_port_hint">须与桌面端一致；下次上线时生效</string>
     <string name="settings_storage">存储</string>
     <string name="settings_history_limit">历史上限</string>
     <string name="settings_usage">占用</string>

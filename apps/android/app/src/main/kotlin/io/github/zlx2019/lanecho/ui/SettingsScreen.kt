@@ -1,20 +1,26 @@
 package io.github.zlx2019.lanecho.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MultiChoiceSegmentedButtonRow
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -26,9 +32,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.zlx2019.lanecho.R
+import io.github.zlx2019.lanecho.capture.ClipboardCapture
+import io.github.zlx2019.lanecho.capture.ShizukuClipboard
+import io.github.zlx2019.lanecho.core.sync.BackgroundReadMethod
 import io.github.zlx2019.lanecho.core.sync.Settings
 import io.github.zlx2019.lanecho.state.AppState
 import io.github.zlx2019.lanecho.sync.SyncService
@@ -71,42 +81,35 @@ fun SettingsScreen(state: AppState, modifier: Modifier = Modifier) {
         )
 
         Section(stringResource(R.string.settings_sync))
-        // Multi-choice segmented buttons: one row for both receive kinds
+        // Checkboxes: one row for both receive kinds
         ListItem(
             headlineContent = { Text(stringResource(R.string.settings_receive_kinds)) },
             trailingContent = {
-                MultiChoiceSegmentedButtonRow {
-                    SegmentedButton(
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    LabeledCheckbox(
+                        label = stringResource(R.string.settings_receive_text_short),
                         checked = settings.receiveText,
-                        onCheckedChange = { save(settings.copy(receiveText = it)) },
-                        shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                    ) { Text(stringResource(R.string.settings_receive_text_short)) }
-                    SegmentedButton(
+                    ) { save(settings.copy(receiveText = it)) }
+                    Spacer(Modifier.width(16.dp))
+                    LabeledCheckbox(
+                        label = stringResource(R.string.settings_receive_images_short),
                         checked = settings.receiveImages,
-                        onCheckedChange = { save(settings.copy(receiveImages = it)) },
-                        shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                    ) { Text(stringResource(R.string.settings_receive_images_short)) }
+                    ) { save(settings.copy(receiveImages = it)) }
                 }
             },
         )
-        SwitchRow(
-            stringResource(R.string.settings_auto_write), settings.autoWriteClipboard,
-            hint = stringResource(R.string.settings_auto_write_hint),
-        ) { save(settings.copy(autoWriteClipboard = it)) }
-        SwitchRow(stringResource(R.string.settings_send_on_open), settings.sendOnOpen) {
-            save(settings.copy(sendOnOpen = it))
+        SwitchRow(stringResource(R.string.settings_auto_write), settings.autoWriteClipboard) {
+            save(settings.copy(autoWriteClipboard = it))
         }
-        SwitchRow(
-            stringResource(R.string.settings_background_online), settings.backgroundOnline,
-            hint = stringResource(R.string.settings_background_online_hint),
-        ) { enabled ->
+        SwitchRow(stringResource(R.string.settings_background_online), settings.backgroundOnline) { enabled ->
             save(settings.copy(backgroundOnline = enabled))
             if (enabled) SyncService.start(state.appContext) else SyncService.stop(state.appContext)
         }
         BatteryOptimizationRow(state)
+        BackgroundReadRow(state, settings) { save(it) }
         ListItem(
             headlineContent = { Text(stringResource(R.string.settings_port)) },
-            supportingContent = { Text(settings.port.toString() + " · " + stringResource(R.string.settings_port_hint)) },
+            supportingContent = { Text(settings.port.toString()) },
             modifier = Modifier.clickable { editPort = true },
         )
 
@@ -169,6 +172,135 @@ fun SettingsScreen(state: AppState, modifier: Modifier = Modifier) {
             editLimit = false
             value.toIntOrNull()?.takeIf { it in 10..10_000 }?.let { save(settings.copy(historyLimit = it)) }
         }
+    }
+}
+
+/**
+ * Background capture method picker plus whatever that method still needs
+ * (K6). Android blocks background clipboard reads outright, so each method
+ * trades setup effort against how invisible it is; the row below the picker
+ * always states the current blocker, never fails silently.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BackgroundReadRow(state: AppState, settings: Settings, save: (Settings) -> Unit) {
+    val context = LocalContext.current
+    var expanded by remember { mutableStateOf(false) }
+    var probe by remember { mutableStateOf(0) }
+    val method = settings.backgroundReadMethod
+    val readiness = remember(method, probe) { state.capture.readiness() }
+
+    val labels = mapOf(
+        BackgroundReadMethod.OFF to stringResource(R.string.settings_capture_off),
+        BackgroundReadMethod.POLLING to stringResource(R.string.settings_capture_polling),
+        BackgroundReadMethod.LOGS to stringResource(R.string.settings_capture_logs),
+        BackgroundReadMethod.SHIZUKU to stringResource(R.string.settings_capture_shizuku),
+    )
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Text(
+            stringResource(R.string.settings_capture),
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.padding(bottom = 8.dp),
+        )
+        ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+            OutlinedTextField(
+                value = labels[method] ?: labels.getValue(BackgroundReadMethod.OFF),
+                onValueChange = {},
+                readOnly = true,
+                singleLine = true,
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .menuAnchor(MenuAnchorType.PrimaryNotEditable),
+            )
+            ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                labels.forEach { (value, label) ->
+                    DropdownMenuItem(
+                        text = { Text(label) },
+                        onClick = {
+                            expanded = false
+                            save(settings.copy(backgroundReadMethod = value))
+                            state.capture.refresh()
+                            probe++
+                        },
+                    )
+                }
+            }
+        }
+    }
+    if (method != BackgroundReadMethod.OFF) {
+        CaptureReadinessRow(state, readiness, context) { probe++ }
+    }
+}
+
+/** One actionable line describing what the chosen method is still missing. */
+@Composable
+private fun CaptureReadinessRow(
+    state: AppState,
+    readiness: ClipboardCapture.Readiness,
+    context: android.content.Context,
+    onChanged: () -> Unit,
+) {
+    val packageName = context.packageName
+    val (text, action) = when (readiness) {
+        ClipboardCapture.Readiness.READY ->
+            stringResource(R.string.settings_capture_ready) to null
+        ClipboardCapture.Readiness.NEEDS_OVERLAY ->
+            stringResource(R.string.settings_capture_needs_overlay) to {
+                runCatching {
+                    context.startActivity(
+                        android.content.Intent(
+                            android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            android.net.Uri.parse("package:$packageName"),
+                        ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                }
+                onChanged()
+            }
+        ClipboardCapture.Readiness.NEEDS_READ_LOGS -> {
+            // The command is long and must be typed on a computer: copying it
+            // beats asking the user to transcribe it
+            val command = "adb shell pm grant $packageName android.permission.READ_LOGS"
+            stringResource(R.string.settings_capture_needs_logs) to {
+                io.github.zlx2019.lanecho.platform.ClipboardPort.writeText(context, command)
+                state.showToast(context.getString(R.string.settings_capture_command_copied))
+                Unit
+            }
+        }
+        ClipboardCapture.Readiness.NEEDS_SHIZUKU_SERVICE ->
+            stringResource(R.string.settings_capture_needs_shizuku) to null
+        ClipboardCapture.Readiness.NEEDS_SHIZUKU_PERMISSION ->
+            stringResource(R.string.settings_capture_needs_shizuku_grant) to {
+                ShizukuClipboard.requestPermission()
+                onChanged()
+            }
+    }
+    ListItem(
+        headlineContent = {
+            Text(
+                text,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (readiness == ClipboardCapture.Readiness.READY) {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                } else {
+                    MaterialTheme.colorScheme.error
+                },
+            )
+        },
+        modifier = if (action != null) Modifier.clickable { action() } else Modifier,
+    )
+}
+
+/** Compact checkbox with a tappable label (no independent touch target). */
+@Composable
+private fun LabeledCheckbox(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.clickable { onChange(!checked) },
+    ) {
+        Checkbox(checked = checked, onCheckedChange = null)
+        Text(label, style = MaterialTheme.typography.bodyMedium)
     }
 }
 

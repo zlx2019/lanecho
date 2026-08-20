@@ -61,7 +61,12 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         // UI-review sample data, opt-in from adb only (see seedDemoData docs)
-        if (intent?.getBooleanExtra("seed-demo", false) == true) state.seedDemoData()
+        // Debug-build-only hooks: the launcher activity is exported, so a
+        // release build must not take peer or history injections from intents
+        if (debuggable()) {
+            if (intent?.getBooleanExtra("seed-demo", false) == true) state.seedDemoData()
+            intent?.getStringExtra("probe-peer")?.let { state.injectProbePeer(it) }
+        }
         // Background arrivals surface as notifications (Android 13+ runtime
         // permission); a refusal only mutes them, the service still runs
         if (android.os.Build.VERSION.SDK_INT >= 33 &&
@@ -87,12 +92,8 @@ class MainActivity : ComponentActivity() {
         state.onBackground()
     }
 
-    override fun onWindowFocusChanged(hasFocus: Boolean) {
-        super.onWindowFocusChanged(hasFocus)
-        // Clipboard reads need window focus on Android 10+, so the DA3
-        // opportunistic upstream hangs off this hook rather than onStart
-        if (hasFocus) state.onFocused()
-    }
+    private fun debuggable(): Boolean =
+        applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
 }
 
 @Composable

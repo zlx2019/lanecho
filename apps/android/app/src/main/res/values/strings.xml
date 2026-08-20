@@ -20,7 +20,6 @@
     <string name="action_copy">Copy</string>
     <string name="toast_copied">Copied</string>
     <string name="toast_auto_written">Written to clipboard</string>
-    <string name="toast_sent_to">Clipboard sent to %1$d device(s)</string>
 
     <string name="search_hint">Search history</string>
     <string name="menu_detail">View details</string>
@@ -69,18 +68,25 @@
     <string name="settings_receive_text_short">Text</string>
     <string name="settings_receive_images_short">Images</string>
     <string name="settings_auto_write">Auto copy</string>
-    <string name="settings_auto_write_hint">Off = received content only lands in history; tap the banner to copy</string>
-    <string name="settings_send_on_open">Send clipboard when opening the app</string>
     <string name="settings_background_online">Run in background</string>
-    <string name="settings_background_online_hint">Keeps receiving after you leave the app; shows a silent persistent notification</string>
     <string name="settings_battery_opt">Ignore battery optimizations</string>
     <string name="settings_battery_opt_hint">The system may pause receiving while the screen is off; exemption recommended</string>
     <string name="settings_battery_opt_done">Exempted</string>
+    <string name="settings_capture">Sync strategy</string>
+    <string name="settings_capture_off">Off</string>
+    <string name="settings_capture_polling">Timed polling</string>
+    <string name="settings_capture_logs">Copy events</string>
+    <string name="settings_capture_shizuku">Shizuku</string>
+    <string name="settings_capture_ready">Working — copies sync automatically</string>
+    <string name="settings_capture_needs_overlay">Tap to allow drawing over other apps (required to read in the background)</string>
+    <string name="settings_capture_needs_logs">Tap to copy the adb command, run it on a computer, then restart the app</string>
+    <string name="settings_capture_needs_shizuku">Shizuku is not running — start the Shizuku app first</string>
+    <string name="settings_capture_needs_shizuku_grant">Tap to grant Lanecho access in Shizuku</string>
+    <string name="settings_capture_command_copied">Command copied — run it on your computer</string>
     <string name="notif_channel_service">Background service</string>
     <string name="notif_channel_incoming">Received content</string>
     <string name="notif_service_title">Receiving clipboard syncs</string>
     <string name="settings_port">Port</string>
-    <string name="settings_port_hint">Must match the desktop nodes; takes effect next time the app comes online</string>
     <string name="settings_storage">Storage</string>
     <string name="settings_history_limit">History limit</string>
     <string name="settings_usage">Usage</string>

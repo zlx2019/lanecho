@@ -43,3 +43,5 @@ DerivedData/
 *.xcodeproj
 apps/macos/App/Info.plist
 apps/macos/build/
+
+.gradle-home/
