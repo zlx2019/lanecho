@@ -32,7 +32,7 @@ class PairedStore(private val path: Path) {
     fun load() {
         if (!Files.exists(path)) return
         val loaded = try {
-            storeJson.decodeFromString(ListSerializer(PairedPeer.serializer()), Files.readString(path))
+            storeJson.decodeFromString(ListSerializer(PairedPeer.serializer()), Files.readAllBytes(path).decodeToString())
         } catch (e: Exception) {
             // A corrupt pairing table must not block startup: peers can re-pair
             Log.warn("paired.json unreadable, starting with an empty pairing set: ${e.message}")

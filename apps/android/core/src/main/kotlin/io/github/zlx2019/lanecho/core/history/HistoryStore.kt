@@ -71,7 +71,7 @@ class HistoryStore(
     fun load() {
         if (!Files.exists(indexPath)) return
         val loaded = try {
-            indexJson.decodeFromString(ListSerializer(HistoryEntry.serializer()), Files.readString(indexPath))
+            indexJson.decodeFromString(ListSerializer(HistoryEntry.serializer()), Files.readAllBytes(indexPath).decodeToString())
         } catch (e: Exception) {
             Log.warn("history index unreadable, starting empty: ${e.message}")
             return

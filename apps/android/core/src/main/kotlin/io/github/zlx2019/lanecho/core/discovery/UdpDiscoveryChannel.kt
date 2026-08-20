@@ -51,7 +51,10 @@ class UdpDiscoveryChannel(
             // Not supported everywhere (older Android); coexistence only
             // matters on dev machines and CI, which do support it
         }
-        receiver.bind(InetSocketAddress(port))
+        // The bare InetSocketAddress(port) wildcard resolves to the IPv6 "::"
+        // on Android and an INET-family channel refuses it
+        // (UnsupportedAddressTypeException); bind the IPv4 wildcard explicitly
+        receiver.bind(InetSocketAddress(InetAddress.getByName("0.0.0.0"), port))
         var joined = 0
         for (nic in eligibleInterfaces()) {
             try {

@@ -22,7 +22,8 @@ object MulticastAvailability {
         val receiver = DatagramChannel.open(StandardProtocolFamily.INET)
         receiver.setOption(StandardSocketOptions.SO_REUSEADDR, true)
         runCatching { receiver.setOption(StandardSocketOptions.SO_REUSEPORT, true) }
-        receiver.bind(InetSocketAddress(0))
+        // IPv4 wildcard on purpose (the bare wildcard is IPv6 on Android)
+        receiver.bind(InetSocketAddress(InetAddress.getByName("0.0.0.0"), 0))
         val port = (receiver.localAddress as InetSocketAddress).port
         val interfaces = NetworkInterface.getNetworkInterfaces().toList().filter { nic ->
             nic.isUp && !nic.isLoopback && nic.supportsMulticast() &&

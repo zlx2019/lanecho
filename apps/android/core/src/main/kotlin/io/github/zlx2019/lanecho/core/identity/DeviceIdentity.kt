@@ -59,7 +59,7 @@ class DeviceIdentity private constructor(
             // certificate: the real identity is the fingerprint, the metadata
             // is regenerable (fresh device_id, display name falls back)
             val meta = try {
-                metaJson.decodeFromString<IdentityMeta>(Files.readString(dir.resolve(META_FILE)))
+                metaJson.decodeFromString<IdentityMeta>(Files.readAllBytes(dir.resolve(META_FILE)).decodeToString())
             } catch (e: Exception) {
                 Log.warn("identity.json unreadable, rebuilding metadata from certificate: ${e.message}")
                 val rebuilt = IdentityMeta(deviceId = UUID.randomUUID().toString(), displayName = null)

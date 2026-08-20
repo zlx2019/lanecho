@@ -42,7 +42,7 @@ class SettingsStore(private val path: Path) {
     fun load() {
         if (!Files.exists(path)) return
         current = try {
-            settingsJson.decodeFromString(Settings.serializer(), Files.readString(path))
+            settingsJson.decodeFromString(Settings.serializer(), Files.readAllBytes(path).decodeToString())
         } catch (e: Exception) {
             Log.warn("settings.json unreadable, using defaults: ${e.message}")
             Settings()
