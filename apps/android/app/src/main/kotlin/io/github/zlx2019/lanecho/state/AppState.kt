@@ -11,6 +11,8 @@ import io.github.zlx2019.lanecho.core.history.HistoryEntry
 import io.github.zlx2019.lanecho.core.protocol.PeerInfo
 import io.github.zlx2019.lanecho.core.sync.Engine
 import io.github.zlx2019.lanecho.core.sync.EngineListener
+import io.github.zlx2019.lanecho.core.sync.PairedPeer
+import io.github.zlx2019.lanecho.platform.AndroidImageCodec
 import io.github.zlx2019.lanecho.platform.ClipboardPort
 import io.github.zlx2019.lanecho.platform.MulticastLockHolder
 import io.github.zlx2019.lanecho.platform.NsdDiscovery
@@ -145,6 +147,74 @@ class AppState(val appContext: Context, val engine: Engine) : EngineListener {
 
     fun showToast(message: String) {
         mainHandler.post { toast = message }
+    }
+
+    // ---- Demo seeding (UI review only) ----
+
+    /**
+     * Populate history and device lists with sample data for UI review.
+     * Trigger: `adb shell am start -n <pkg>/.MainActivity --ez seed-demo true`.
+     * History and pairings persist like real data; registry peers vanish on
+     * restart. Peer addresses use TEST-NET (RFC 5737) so dials fail fast.
+     */
+    fun seedDemoData() {
+        worker.execute {
+            val now = System.currentTimeMillis()
+            val history = engine.history
+            val mac = "Zero 的 Mac mini"
+            val win = "Windows 工作站"
+
+            history.recordText("8f7a2c91-4b3e-4d17-9a60-5c2f8e1d0b42", mac, now - 26 * 3_600_000)
+            history.recordText(
+                "剪贴板同步的铁律：程序写入的内容永不广播，敏感标记的内容不出本机。" +
+                    "任何地方不许 trim 或转义，文本必须逐字节一致地送达每一台设备。",
+                null, now - 5 * 3_600_000,
+            )
+            seedImage(400, 560, 0xFFE8A0B4.toInt(), 0xFF7C4DAB.toInt(), win, now - 2 * 3_600_000)
+            history.recordText("zero@example.com", win, now - 3_600_000)
+            history.recordText("cargo nextest run --workspace", null, now - 26 * 60_000)
+                ?.let { history.setPinned(it.id, true) }
+            seedImage(640, 400, 0xFF2A9D8F.toInt(), 0xFFB7E9DF.toInt(), mac, now - 15 * 60_000)
+            history.recordText("https://github.com/zlx2019/lanecho", mac, now - 8 * 60_000)
+            history.recordText("会议改到周四下午 3 点，记得带上季度报表", mac, now - 2 * 60_000)
+
+            val paired = engine.paired
+            paired.upsert(PairedPeer("a1".repeat(32), "demo-mac", mac, now - 86_400_000))
+            paired.upsert(PairedPeer("b2".repeat(32), "demo-win", win, now - 172_800_000))
+            val registry = engine.registry
+            registry.seenMdns(
+                PeerInfo("demo-mac", mac, "a1".repeat(32), "macos", "macOS 15.3"),
+                listOf("192.0.2.10"), 42524, now,
+            )
+            registry.seenMdns(
+                PeerInfo("demo-air", "MacBook Air", "c3".repeat(32), "macos", "macOS 15.5"),
+                listOf("192.0.2.11"), 42524, now,
+            )
+            registry.seenMdns(
+                PeerInfo("demo-pixel", "Pixel 9 Pro", "d4".repeat(32), "android", "Android 16"),
+                listOf("192.0.2.12"), 42524, now,
+            )
+            onHistoryChanged()
+        }
+    }
+
+    /** Draw a gradient with a translucent disc, encode as PNG, and record it. */
+    private fun seedImage(w: Int, h: Int, from: Int, to: Int, origin: String?, timestampMs: Long) {
+        val bitmap = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bitmap)
+        val paint = android.graphics.Paint().apply {
+            shader = android.graphics.LinearGradient(
+                0f, 0f, w.toFloat(), h.toFloat(), from, to, android.graphics.Shader.TileMode.CLAMP,
+            )
+        }
+        canvas.drawRect(0f, 0f, w.toFloat(), h.toFloat(), paint)
+        val disc = android.graphics.Paint().apply { color = 0x55FFFFFF }
+        canvas.drawCircle(w * 0.68f, h * 0.32f, minOf(w, h) * 0.28f, disc)
+        val out = java.io.ByteArrayOutputStream()
+        bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+        val png = out.toByteArray()
+        val rgba = AndroidImageCodec.decodeRgba(png) ?: return
+        engine.history.recordImage(png, rgba, origin, timestampMs)
     }
 
     // ---- EngineListener (connection threads → main) ----

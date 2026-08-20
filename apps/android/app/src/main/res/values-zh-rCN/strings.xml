@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">lanecho</string>
+    <string name="app_name">Lanecho</string>
     <string name="share_target_label">发送到电脑</string>
 
     <string name="tab_history">历史</string>
@@ -89,5 +89,5 @@
     <string name="share_no_devices">未发现在线设备，请确认电脑端正在运行。</string>
     <string name="share_retry">重试</string>
     <string name="share_done">完成</string>
-    <string name="share_no_paired">还没有已配对的设备，请先打开 lanecho 完成配对。</string>
+    <string name="share_no_paired">还没有已配对的设备，请先打开 Lanecho 完成配对。</string>
 </resources>

@@ -58,6 +58,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // UI-review sample data, opt-in from adb only (see seedDemoData docs)
+        if (intent?.getBooleanExtra("seed-demo", false) == true) state.seedDemoData()
         setContent {
             LanechoTheme {
                 MainScaffold(state)

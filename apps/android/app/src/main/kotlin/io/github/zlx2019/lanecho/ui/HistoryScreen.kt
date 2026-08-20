@@ -8,12 +8,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.TextSnippet
@@ -47,6 +49,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.zlx2019.lanecho.R
@@ -86,20 +89,12 @@ fun HistoryScreen(
             scrollBehavior = topBar,
             title = {
                 Column {
-                    Text(stringResource(R.string.app_name))
                     Text(
-                        text = when {
-                            !state.online -> stringResource(R.string.status_offline)
-                            onlinePaired > 0 -> stringResource(R.string.status_online, onlinePaired)
-                            else -> stringResource(R.string.status_no_peers)
-                        },
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (state.online && onlinePaired > 0) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
+                        stringResource(R.string.app_name),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
                     )
+                    StatusChip(online = state.online, connected = onlinePaired)
                 }
             },
             actions = {
@@ -167,6 +162,42 @@ fun HistoryScreen(
                     Text(stringResource(R.string.dialog_cancel))
                 }
             },
+        )
+    }
+}
+
+/** Pill under the app title: colored liveness dot plus the peer summary. */
+@Composable
+private fun StatusChip(online: Boolean, connected: Int) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .padding(top = 3.dp)
+            .clip(RoundedCornerShape(percent = 50))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+    ) {
+        Box(
+            Modifier
+                .size(7.dp)
+                .clip(CircleShape)
+                .background(
+                    if (online) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.outline
+                    },
+                ),
+        )
+        Text(
+            text = when {
+                !online -> stringResource(R.string.status_offline)
+                connected > 0 -> stringResource(R.string.status_online, connected)
+                else -> stringResource(R.string.status_no_peers)
+            },
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 5.dp),
         )
     }
 }
