@@ -12,7 +12,7 @@
     <string name="status_offline">离线</string>
 
     <string name="empty_history_title">电脑上复制的内容会出现在这里</string>
-    <string name="empty_history_body">仅在本应用打开期间接收；离开后电脑复制的内容不会补收。</string>
+    <string name="empty_history_body">后台运行时也能接收；手机深度休眠期间可能暂停，错过的内容不会补收。</string>
     <string name="empty_go_pair">去配对设备</string>
 
     <string name="banner_received_text">收到来自 %1$s 的文本</string>
@@ -70,6 +70,14 @@
     <string name="settings_auto_write">自动写入剪贴板</string>
     <string name="settings_auto_write_hint">关闭时收到的内容只进历史，点横幅再复制</string>
     <string name="settings_send_on_open">打开应用时发送剪贴板</string>
+    <string name="settings_background_online">后台保持在线</string>
+    <string name="settings_background_online_hint">退到后台仍接收同步；会显示一条静默的常驻通知</string>
+    <string name="settings_battery_opt">忽略电池优化</string>
+    <string name="settings_battery_opt_hint">息屏后系统可能暂停接收，建议豁免</string>
+    <string name="settings_battery_opt_done">已豁免</string>
+    <string name="notif_channel_service">后台运行</string>
+    <string name="notif_channel_incoming">收到的内容</string>
+    <string name="notif_service_title">正在接收剪贴板同步</string>
     <string name="settings_port">端口</string>
     <string name="settings_port_hint">须与桌面端一致；下次上线时生效</string>
     <string name="settings_storage">存储</string>

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status-bar glyph (alpha-only): simplified clipboard-and-heart mark -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <path
+        android:pathData="M6.5,4.5 h11 a1.5,1.5 0 0 1 1.5,1.5 v13 a1.5,1.5 0 0 1 -1.5,1.5 h-11 a1.5,1.5 0 0 1 -1.5,-1.5 v-13 a1.5,1.5 0 0 1 1.5,-1.5 z"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.7" />
+    <path
+        android:pathData="M10.2,2.6 h3.6 a1.2,1.2 0 0 1 1.2,1.2 v2 h-6 v-2 a1.2,1.2 0 0 1 1.2,-1.2 z"
+        android:fillColor="#FFFFFF" />
+    <path
+        android:pathData="M12,14.6 C9.7,13 8.8,11.7 9.4,10.7 C9.9,9.9 11.3,9.9 12,11 C12.7,9.9 14.1,9.9 14.6,10.7 C15.2,11.7 14.3,13 12,14.6 z"
+        android:fillColor="#FFFFFF" />
+    <path
+        android:pathData="M8.5,16.8 h7"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round" />
+</vector>

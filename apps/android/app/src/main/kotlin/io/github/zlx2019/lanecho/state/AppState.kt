@@ -13,9 +13,11 @@ import io.github.zlx2019.lanecho.core.sync.Engine
 import io.github.zlx2019.lanecho.core.sync.EngineListener
 import io.github.zlx2019.lanecho.core.sync.PairedPeer
 import io.github.zlx2019.lanecho.platform.AndroidImageCodec
+import io.github.zlx2019.lanecho.R
 import io.github.zlx2019.lanecho.platform.ClipboardPort
 import io.github.zlx2019.lanecho.platform.MulticastLockHolder
 import io.github.zlx2019.lanecho.platform.NsdDiscovery
+import io.github.zlx2019.lanecho.sync.SyncService
 import java.util.concurrent.Executors
 
 /** A received-content banner awaiting the user (DA2: history + tap-to-copy). */
@@ -50,48 +52,64 @@ class AppState(val appContext: Context, val engine: Engine) : EngineListener {
     private var offlineDebounce: Runnable? = null
     private var sentOnThisForeground = false
 
+    /** Whether any Activity is started; liveness = uiVisible OR SyncService. */
+    var uiVisible = false
+        private set
+
     init {
         engine.addListener(this)
     }
 
-    // ---- Foreground-online lifecycle ----
+    // ---- Online lifecycle (shared by the Activity and SyncService, K5) ----
 
     fun onForeground() {
-        offlineDebounce?.let(mainHandler::removeCallbacks)
-        offlineDebounce = null
-        if (online) return
-        worker.execute {
-            multicastLock.acquire()
-            engine.goOnline()
-            if (engine.isOnline) {
-                val discovery = NsdDiscovery(
-                    appContext, engine.registry, engine.identity.deviceId,
-                    engine::localInfo, { engine.settings.current.port },
-                )
-                discovery.start()
-                nsd = discovery
-            }
-            mainHandler.post {
-                online = engine.isOnline
-                sentOnThisForeground = false
-            }
-        }
+        uiVisible = true
+        sentOnThisForeground = false
+        ensureOnline()
+        // The service outlives the UI and keeps receiving in the background
+        if (engine.settings.current.backgroundOnline) SyncService.start(appContext)
     }
 
     fun onBackground() {
+        uiVisible = false
+        if (SyncService.running) return
         // Debounce: rotation restarts the Activity within milliseconds and
         // must not flap goodbye/announce on the LAN
-        val task = Runnable {
-            worker.execute {
-                nsd?.stop()
-                nsd = null
-                engine.goOffline()
-                multicastLock.release()
-                mainHandler.post { online = false }
-            }
-        }
+        val task = Runnable { goOfflineNow() }
         offlineDebounce = task
         mainHandler.postDelayed(task, 800)
+    }
+
+    /** Idempotent bring-up; safe from the Activity and the service alike. */
+    fun ensureOnline() {
+        offlineDebounce?.let(mainHandler::removeCallbacks)
+        offlineDebounce = null
+        worker.execute {
+            if (!engine.isOnline) {
+                multicastLock.acquire()
+                engine.goOnline()
+                if (engine.isOnline) {
+                    val discovery = NsdDiscovery(
+                        appContext, engine.registry, engine.identity.deviceId,
+                        engine::localInfo, { engine.settings.current.port },
+                    )
+                    discovery.start()
+                    nsd = discovery
+                }
+            }
+            mainHandler.post { online = engine.isOnline }
+        }
+    }
+
+    /** Immediate teardown; called when the last liveness owner goes away. */
+    fun goOfflineNow() {
+        worker.execute {
+            nsd?.stop()
+            nsd = null
+            engine.goOffline()
+            multicastLock.release()
+            mainHandler.post { online = false }
+        }
     }
 
     /** First window focus after coming to the foreground: DA3 upstream. */
@@ -234,11 +252,50 @@ class AppState(val appContext: Context, val engine: Engine) : EngineListener {
         val autoWrite = engine.settings.current.autoWriteClipboard
         mainHandler.post {
             if (autoWrite && entry.kind == io.github.zlx2019.lanecho.core.history.EntryKind.TEXT) {
-                entry.text?.let { ClipboardPort.writeText(appContext, it) }
-                engine.noteAppliedToClipboard(entry)
+                // Newer Android releases may reject background clipboard
+                // writes; the notification below still lets the user copy
+                runCatching {
+                    entry.text?.let { ClipboardPort.writeText(appContext, it) }
+                    engine.noteAppliedToClipboard(entry)
+                }
             }
-            banner = Banner(entry, fromName, autoWritten = autoWrite)
+            if (uiVisible) {
+                banner = Banner(entry, fromName, autoWritten = autoWrite)
+            } else {
+                postIncomingNotification(entry, fromName)
+            }
         }
+    }
+
+    /** Background arrival: a tappable system notification instead of the banner. */
+    private fun postIncomingNotification(entry: HistoryEntry, fromName: String) {
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            appContext.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        SyncService.ensureChannels(appContext)
+        val isImage = entry.kind == io.github.zlx2019.lanecho.core.history.EntryKind.IMAGE
+        val title = appContext.getString(
+            if (isImage) R.string.banner_received_image else R.string.banner_received_text,
+            fromName,
+        )
+        val openApp = android.app.PendingIntent.getActivity(
+            appContext, 1,
+            android.content.Intent(appContext, io.github.zlx2019.lanecho.MainActivity::class.java),
+            android.app.PendingIntent.FLAG_IMMUTABLE,
+        )
+        val notification = androidx.core.app.NotificationCompat
+            .Builder(appContext, SyncService.CHANNEL_INCOMING)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title)
+            .setContentText(entry.preview)
+            .setContentIntent(openApp)
+            .setAutoCancel(true)
+            .build()
+        androidx.core.app.NotificationManagerCompat.from(appContext)
+            .notify(entry.id.hashCode(), notification)
     }
 
     override fun onPairRequest(remote: PeerInfo) {

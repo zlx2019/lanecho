@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import io.github.zlx2019.lanecho.R
 import io.github.zlx2019.lanecho.core.sync.Settings
 import io.github.zlx2019.lanecho.state.AppState
+import io.github.zlx2019.lanecho.sync.SyncService
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,6 +80,14 @@ fun SettingsScreen(state: AppState, modifier: Modifier = Modifier) {
         SwitchRow(stringResource(R.string.settings_send_on_open), settings.sendOnOpen) {
             save(settings.copy(sendOnOpen = it))
         }
+        SwitchRow(
+            stringResource(R.string.settings_background_online), settings.backgroundOnline,
+            hint = stringResource(R.string.settings_background_online_hint),
+        ) { enabled ->
+            save(settings.copy(backgroundOnline = enabled))
+            if (enabled) SyncService.start(state.appContext) else SyncService.stop(state.appContext)
+        }
+        BatteryOptimizationRow(state)
         ListItem(
             headlineContent = { Text(stringResource(R.string.settings_port)) },
             supportingContent = { Text(settings.port.toString() + " · " + stringResource(R.string.settings_port_hint)) },
@@ -145,6 +154,41 @@ fun SettingsScreen(state: AppState, modifier: Modifier = Modifier) {
             value.toIntOrNull()?.takeIf { it in 10..10_000 }?.let { save(settings.copy(historyLimit = it)) }
         }
     }
+}
+
+/**
+ * Doze suspends background networking even for foreground services; the
+ * exemption keeps receiving alive with the screen off. State refreshes on
+ * every recomposition of the settings tab.
+ */
+@Composable
+private fun BatteryOptimizationRow(state: AppState) {
+    val context = state.appContext
+    var refresh by remember { mutableStateOf(0) }
+    val exempted = remember(refresh) {
+        val power = context.getSystemService(android.os.PowerManager::class.java)
+        power?.isIgnoringBatteryOptimizations(context.packageName) == true
+    }
+    ListItem(
+        headlineContent = { Text(stringResource(R.string.settings_battery_opt)) },
+        supportingContent = {
+            Text(
+                stringResource(
+                    if (exempted) R.string.settings_battery_opt_done else R.string.settings_battery_opt_hint,
+                ),
+            )
+        },
+        modifier = Modifier.clickable(enabled = !exempted) {
+            runCatching {
+                val intent = android.content.Intent(
+                    android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    android.net.Uri.parse("package:" + context.packageName),
+                ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(intent)
+            }
+            refresh++
+        },
+    )
 }
 
 @Composable

@@ -60,6 +60,14 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         // UI-review sample data, opt-in from adb only (see seedDemoData docs)
         if (intent?.getBooleanExtra("seed-demo", false) == true) state.seedDemoData()
+        // Background arrivals surface as notifications (Android 13+ runtime
+        // permission); a refusal only mutes them, the service still runs
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1)
+        }
         setContent {
             LanechoTheme {
                 MainScaffold(state)

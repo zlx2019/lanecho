@@ -22,6 +22,8 @@ data class Settings(
     val autoWriteClipboard: Boolean = false,
     /** Broadcast the clipboard when the app comes to the foreground (DA3). */
     val sendOnOpen: Boolean = true,
+    /** Keep receiving in the background via a foreground service (K5). */
+    val backgroundOnline: Boolean = true,
     /** TCP listening port (must match across the LAN's lanecho nodes). */
     val port: Int = DEFAULT_TCP_PORT,
     /** History entry cap. */
