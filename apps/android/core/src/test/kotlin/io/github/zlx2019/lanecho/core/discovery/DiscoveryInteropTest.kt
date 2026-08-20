@@ -77,7 +77,12 @@ class DiscoveryInteropTest {
 
         channelB.stop() // Sends goodbye
         waitUntil("bob going down") { registryA.find("fp-b") == null }
-        assertTrue(eventsA.any { it is PeerEvent.Down && it.fingerprint == "fp-b" })
+        // Poll for the event too: goodbye() removes the entry before it fires
+        // the callback, so asserting right after the entry disappears races
+        // that gap and fails under load
+        waitUntil("bob's down event") {
+            eventsA.any { it is PeerEvent.Down && it.fingerprint == "fp-b" }
+        }
     }
 
     @Test
