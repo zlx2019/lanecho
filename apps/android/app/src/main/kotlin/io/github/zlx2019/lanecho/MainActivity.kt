@@ -6,13 +6,14 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.Crossfade
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Devices
@@ -35,9 +36,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -50,6 +51,7 @@ import io.github.zlx2019.lanecho.ui.DevicesScreen
 import io.github.zlx2019.lanecho.ui.HistoryScreen
 import io.github.zlx2019.lanecho.ui.LanechoTheme
 import io.github.zlx2019.lanecho.ui.SettingsScreen
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
@@ -95,9 +97,15 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun MainScaffold(state: AppState) {
-    var tab by remember { mutableIntStateOf(0) }
+    // Pager state is the single source of truth for the selected tab: swipes
+    // and bottom-bar taps both land on it
+    val pagerState = rememberPagerState(pageCount = { 3 })
+    val scope = rememberCoroutineScope()
     var detailEntryId by remember { mutableStateOf<String?>(null) }
     val snackbar = remember { SnackbarHostState() }
+    fun goTab(index: Int) {
+        scope.launch { pagerState.animateScrollToPage(index) }
+    }
 
     // Received-content banner (DA2): snackbar with a copy action; auto-write
     // mode only reports what already happened
@@ -180,23 +188,24 @@ private fun MainScaffold(state: AppState) {
                 snackbarHost = { SnackbarHost(snackbar) },
                 bottomBar = {
                     NavigationBar {
-                        TabItem(tab == 0, { tab = 0 }, Icons.Filled.ContentPaste, Icons.Outlined.ContentPaste, R.string.tab_history)
-                        TabItem(tab == 1, { tab = 1 }, Icons.Filled.Devices, Icons.Outlined.Devices, R.string.tab_devices)
-                        TabItem(tab == 2, { tab = 2 }, Icons.Filled.Settings, Icons.Outlined.Settings, R.string.tab_settings)
+                        TabItem(pagerState.currentPage == 0, { goTab(0) }, Icons.Filled.ContentPaste, Icons.Outlined.ContentPaste, R.string.tab_history)
+                        TabItem(pagerState.currentPage == 1, { goTab(1) }, Icons.Filled.Devices, Icons.Outlined.Devices, R.string.tab_devices)
+                        TabItem(pagerState.currentPage == 2, { goTab(2) }, Icons.Filled.Settings, Icons.Outlined.Settings, R.string.tab_settings)
                     }
                 },
             ) { padding ->
-                val content = Modifier.padding(padding)
-                Crossfade(targetState = tab, label = "tab") { current ->
-                    when (current) {
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.padding(padding),
+                ) { page ->
+                    when (page) {
                         0 -> HistoryScreen(
                             state = state,
-                            modifier = content,
                             onOpenDetail = { detailEntryId = it },
-                            onGoPair = { tab = 1 },
+                            onGoPair = { goTab(1) },
                         )
-                        1 -> DevicesScreen(state = state, modifier = content)
-                        else -> SettingsScreen(state = state, modifier = content)
+                        1 -> DevicesScreen(state = state)
+                        else -> SettingsScreen(state = state)
                     }
                 }
             }
