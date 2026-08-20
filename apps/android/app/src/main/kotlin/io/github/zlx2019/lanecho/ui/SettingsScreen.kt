@@ -2,19 +2,19 @@ package io.github.zlx2019.lanecho.ui
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MultiChoiceSegmentedButtonRow
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -71,23 +71,24 @@ fun SettingsScreen(state: AppState, modifier: Modifier = Modifier) {
         )
 
         Section(stringResource(R.string.settings_sync))
-        // Text and image receive toggles share one row (Zero, 2026-08-20)
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(stringResource(R.string.settings_receive_text), Modifier.weight(1f))
-            Switch(checked = settings.receiveText, onCheckedChange = {
-                save(settings.copy(receiveText = it))
-            })
-            Spacer(Modifier.width(24.dp))
-            Text(stringResource(R.string.settings_receive_images), Modifier.weight(1f))
-            Switch(checked = settings.receiveImages, onCheckedChange = {
-                save(settings.copy(receiveImages = it))
-            })
-        }
+        // Multi-choice segmented buttons: one row for both receive kinds
+        ListItem(
+            headlineContent = { Text(stringResource(R.string.settings_receive_kinds)) },
+            trailingContent = {
+                MultiChoiceSegmentedButtonRow {
+                    SegmentedButton(
+                        checked = settings.receiveText,
+                        onCheckedChange = { save(settings.copy(receiveText = it)) },
+                        shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                    ) { Text(stringResource(R.string.settings_receive_text_short)) }
+                    SegmentedButton(
+                        checked = settings.receiveImages,
+                        onCheckedChange = { save(settings.copy(receiveImages = it)) },
+                        shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                    ) { Text(stringResource(R.string.settings_receive_images_short)) }
+                }
+            },
+        )
         SwitchRow(
             stringResource(R.string.settings_auto_write), settings.autoWriteClipboard,
             hint = stringResource(R.string.settings_auto_write_hint),

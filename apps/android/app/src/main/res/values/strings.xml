@@ -65,8 +65,9 @@
     <string name="settings_device_name">Device name</string>
     <string name="settings_fingerprint">This device\'s fingerprint</string>
     <string name="settings_sync">Sync</string>
-    <string name="settings_receive_text">Receive text</string>
-    <string name="settings_receive_images">Receive images</string>
+    <string name="settings_receive_kinds">Receive content</string>
+    <string name="settings_receive_text_short">Text</string>
+    <string name="settings_receive_images_short">Images</string>
     <string name="settings_auto_write">Auto copy</string>
     <string name="settings_auto_write_hint">Off = received content only lands in history; tap the banner to copy</string>
     <string name="settings_send_on_open">Send clipboard when opening the app</string>

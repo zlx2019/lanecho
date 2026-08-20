@@ -65,8 +65,9 @@
     <string name="settings_device_name">设备名</string>
     <string name="settings_fingerprint">本机指纹</string>
     <string name="settings_sync">同步</string>
-    <string name="settings_receive_text">接收文本</string>
-    <string name="settings_receive_images">接收图像</string>
+    <string name="settings_receive_kinds">接收内容</string>
+    <string name="settings_receive_text_short">文本</string>
+    <string name="settings_receive_images_short">图像</string>
     <string name="settings_auto_write">自动复制</string>
     <string name="settings_auto_write_hint">关闭时收到的内容只进历史，点横幅再复制</string>
     <string name="settings_send_on_open">打开应用时发送剪贴板</string>
