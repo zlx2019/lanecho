@@ -67,10 +67,10 @@
     <string name="settings_sync">同步</string>
     <string name="settings_receive_text">接收文本</string>
     <string name="settings_receive_images">接收图像</string>
-    <string name="settings_auto_write">自动写入剪贴板</string>
+    <string name="settings_auto_write">自动复制</string>
     <string name="settings_auto_write_hint">关闭时收到的内容只进历史，点横幅再复制</string>
     <string name="settings_send_on_open">打开应用时发送剪贴板</string>
-    <string name="settings_background_online">后台保持在线</string>
+    <string name="settings_background_online">后台运行</string>
     <string name="settings_background_online_hint">退到后台仍接收同步；会显示一条静默的常驻通知</string>
     <string name="settings_battery_opt">忽略电池优化</string>
     <string name="settings_battery_opt_hint">息屏后系统可能暂停接收，建议豁免</string>

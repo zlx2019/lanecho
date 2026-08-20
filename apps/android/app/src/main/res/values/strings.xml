@@ -67,10 +67,10 @@
     <string name="settings_sync">Sync</string>
     <string name="settings_receive_text">Receive text</string>
     <string name="settings_receive_images">Receive images</string>
-    <string name="settings_auto_write">Write received content to clipboard</string>
+    <string name="settings_auto_write">Auto copy</string>
     <string name="settings_auto_write_hint">Off = received content only lands in history; tap the banner to copy</string>
     <string name="settings_send_on_open">Send clipboard when opening the app</string>
-    <string name="settings_background_online">Stay online in the background</string>
+    <string name="settings_background_online">Run in background</string>
     <string name="settings_background_online_hint">Keeps receiving after you leave the app; shows a silent persistent notification</string>
     <string name="settings_battery_opt">Ignore battery optimizations</string>
     <string name="settings_battery_opt_hint">The system may pause receiving while the screen is off; exemption recommended</string>
