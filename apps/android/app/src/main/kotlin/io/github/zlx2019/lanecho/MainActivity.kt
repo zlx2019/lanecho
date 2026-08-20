@@ -4,11 +4,22 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.ContentPaste
+import androidx.compose.material.icons.outlined.Devices
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -29,7 +40,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import io.github.zlx2019.lanecho.core.history.HistoryEntry
 import io.github.zlx2019.lanecho.state.AppState
 import io.github.zlx2019.lanecho.ui.DetailScreen
@@ -44,6 +57,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         setContent {
             LanechoTheme {
                 MainScaffold(state)
@@ -69,7 +83,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MainScaffold(state: AppState) {
     var tab by remember { mutableIntStateOf(0) }
@@ -133,47 +146,69 @@ private fun MainScaffold(state: AppState) {
         )
     }
 
-    val detailId = detailEntryId
-    if (detailId != null) {
-        BackHandler { detailEntryId = null }
-        DetailScreen(state, detailId, onClose = { detailEntryId = null })
-        return
-    }
+    BackHandler(enabled = detailEntryId != null) { detailEntryId = null }
 
-    Scaffold(
-        snackbarHost = { SnackbarHost(snackbar) },
-        bottomBar = {
-            NavigationBar {
-                NavigationBarItem(
-                    selected = tab == 0, onClick = { tab = 0 },
-                    icon = { Icon(Icons.Filled.ContentPaste, contentDescription = null) },
-                    label = { Text(stringResource(R.string.tab_history)) },
-                )
-                NavigationBarItem(
-                    selected = tab == 1, onClick = { tab = 1 },
-                    icon = { Icon(Icons.Filled.Devices, contentDescription = null) },
-                    label = { Text(stringResource(R.string.tab_devices)) },
-                )
-                NavigationBarItem(
-                    selected = tab == 2, onClick = { tab = 2 },
-                    icon = { Icon(Icons.Filled.Settings, contentDescription = null) },
-                    label = { Text(stringResource(R.string.tab_settings)) },
-                )
+    // Detail slides in over the tabs and slides back out on return
+    AnimatedContent(
+        targetState = detailEntryId,
+        transitionSpec = {
+            if (targetState != null) {
+                (slideInHorizontally { it / 3 } + fadeIn()) togetherWith fadeOut()
+            } else {
+                fadeIn() togetherWith (slideOutHorizontally { it / 3 } + fadeOut())
             }
         },
-    ) { padding ->
-        val content = Modifier.padding(padding)
-        when (tab) {
-            0 -> HistoryScreen(
-                state = state,
-                modifier = content,
-                onOpenDetail = { detailEntryId = it },
-                onGoPair = { tab = 1 },
-            )
-            1 -> DevicesScreen(state = state, modifier = content)
-            else -> SettingsScreen(state = state, modifier = content)
+        label = "detail",
+    ) { entryId ->
+        if (entryId != null) {
+            DetailScreen(state, entryId, onClose = { detailEntryId = null })
+        } else {
+            // Top inset is owned by each tab's own TopAppBar; zeroing the
+            // scaffold insets avoids double status-bar padding (title sag)
+            Scaffold(
+                contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0.dp),
+                snackbarHost = { SnackbarHost(snackbar) },
+                bottomBar = {
+                    NavigationBar {
+                        TabItem(tab == 0, { tab = 0 }, Icons.Filled.ContentPaste, Icons.Outlined.ContentPaste, R.string.tab_history)
+                        TabItem(tab == 1, { tab = 1 }, Icons.Filled.Devices, Icons.Outlined.Devices, R.string.tab_devices)
+                        TabItem(tab == 2, { tab = 2 }, Icons.Filled.Settings, Icons.Outlined.Settings, R.string.tab_settings)
+                    }
+                },
+            ) { padding ->
+                val content = Modifier.padding(padding)
+                Crossfade(targetState = tab, label = "tab") { current ->
+                    when (current) {
+                        0 -> HistoryScreen(
+                            state = state,
+                            modifier = content,
+                            onOpenDetail = { detailEntryId = it },
+                            onGoPair = { tab = 1 },
+                        )
+                        1 -> DevicesScreen(state = state, modifier = content)
+                        else -> SettingsScreen(state = state, modifier = content)
+                    }
+                }
+            }
         }
     }
+}
+
+/** Bottom bar item: filled icon when selected, outlined otherwise. */
+@Composable
+private fun androidx.compose.foundation.layout.RowScope.TabItem(
+    selected: Boolean,
+    onClick: () -> Unit,
+    filled: ImageVector,
+    outlined: ImageVector,
+    label: Int,
+) {
+    NavigationBarItem(
+        selected = selected,
+        onClick = onClick,
+        icon = { Icon(if (selected) filled else outlined, contentDescription = null) },
+        label = { Text(stringResource(label)) },
+    )
 }
 
 /** Detail entry lookup used by the detail screen. */

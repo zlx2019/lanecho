@@ -48,6 +48,8 @@
     <string name="devices_online">在线</string>
     <string name="devices_offline">离线</string>
     <string name="devices_hint">找不到设备？确认手机与电脑在同一 Wi-Fi 且桌面端正在运行。</string>
+    <string name="devices_none_paired">尚未配对任何设备</string>
+    <string name="devices_none_nearby">暂未发现设备</string>
     <string name="devices_unpair">解除配对</string>
     <string name="devices_pairing">等待对方确认…</string>
     <string name="devices_pair_failed">配对失败：%1$s</string>

@@ -4,20 +4,22 @@ import android.graphics.BitmapFactory
 import android.text.format.DateUtils
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.TextSnippet
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -30,6 +32,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -38,8 +41,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -70,8 +76,14 @@ fun HistoryScreen(
     val onlinePaired = remember(state.peersVersion) { state.engine.onlinePairedPeers().size }
     val hasPaired = remember(state.peersVersion) { state.engine.paired.all().isNotEmpty() }
 
-    Column(modifier.fillMaxSize()) {
+    val topBar = TopAppBarDefaults.pinnedScrollBehavior()
+    Column(
+        modifier
+            .fillMaxSize()
+            .nestedScroll(topBar.nestedScrollConnection),
+    ) {
         TopAppBar(
+            scrollBehavior = topBar,
             title = {
                 Column {
                     Text(stringResource(R.string.app_name))
@@ -82,7 +94,11 @@ fun HistoryScreen(
                             else -> stringResource(R.string.status_no_peers)
                         },
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = if (state.online && onlinePaired > 0) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
                     )
                 }
             },
@@ -127,6 +143,7 @@ fun HistoryScreen(
                         onLongClick = { menuFor = entry.id },
                         onDismissMenu = { menuFor = null },
                         onOpenDetail = { onOpenDetail(entry.id) },
+                        modifier = Modifier.animateItem(),
                     )
                 }
             }
@@ -164,29 +181,23 @@ private fun HistoryRow(
     onLongClick: () -> Unit,
     onDismissMenu: () -> Unit,
     onOpenDetail: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    Box {
+    Box(modifier) {
         ListItem(
             modifier = Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick),
-            leadingContent = {
-                if (entry.kind == EntryKind.IMAGE) {
-                    val thumbnail = rememberBlobThumbnail(state, entry.blobHash)
-                    if (thumbnail != null) {
-                        Image(thumbnail, contentDescription = null, modifier = Modifier.size(40.dp))
-                    } else {
-                        Icon(Icons.Outlined.Image, contentDescription = null)
-                    }
-                } else {
-                    Icon(Icons.AutoMirrored.Outlined.TextSnippet, contentDescription = null)
-                }
-            },
+            leadingContent = { EntryThumbnail(state, entry) },
             headlineContent = {
                 Text(entry.preview, maxLines = 1, overflow = TextOverflow.Ellipsis)
             },
             supportingContent = {
                 val origin = entry.origin ?: stringResource(R.string.detail_source_local)
                 val time = DateUtils.getRelativeTimeSpanString(entry.lastCopiedAt).toString()
-                Text("$origin · $time", style = MaterialTheme.typography.labelMedium)
+                Text(
+                    "$origin · $time",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             },
             trailingContent = {
                 if (entry.pinned) {
@@ -232,13 +243,57 @@ private fun HistoryRow(
     }
 }
 
+/** Rounded leading tile: image thumbnail, or a kind icon on a tinted plate. */
+@Composable
+private fun EntryThumbnail(state: AppState, entry: HistoryEntry) {
+    val shape = RoundedCornerShape(10.dp)
+    Box(
+        Modifier
+            .size(44.dp)
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surfaceVariant),
+        contentAlignment = Alignment.Center,
+    ) {
+        val thumbnail = if (entry.kind == EntryKind.IMAGE) rememberBlobThumbnail(state, entry.blobHash) else null
+        when {
+            thumbnail != null -> Image(
+                thumbnail,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+            entry.kind == EntryKind.IMAGE -> Icon(
+                Icons.Outlined.Image, contentDescription = null,
+                modifier = Modifier.size(22.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            else -> Icon(
+                Icons.AutoMirrored.Outlined.TextSnippet, contentDescription = null,
+                modifier = Modifier.size(22.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
 @Composable
 private fun EmptyHistory(hasPaired: Boolean, onGoPair: () -> Unit) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
+            Icon(
+                Icons.Outlined.ContentPaste,
+                contentDescription = null,
+                modifier = Modifier
+                    .size(88.dp)
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f))
+                    .padding(24.dp),
+                tint = MaterialTheme.colorScheme.primary,
+            )
             Text(
                 stringResource(R.string.empty_history_title),
                 style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(top = 20.dp),
             )
             Text(
                 stringResource(R.string.empty_history_body),

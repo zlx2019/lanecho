@@ -48,6 +48,8 @@
     <string name="devices_online">online</string>
     <string name="devices_offline">offline</string>
     <string name="devices_hint">Can\'t find a device? Make sure the phone and the computer are on the same Wi-Fi and the desktop app is running.</string>
+    <string name="devices_none_paired">No paired devices yet</string>
+    <string name="devices_none_nearby">No devices found yet</string>
     <string name="devices_unpair">Unpair</string>
     <string name="devices_pairing">Waiting for the other side to confirm…</string>
     <string name="devices_pair_failed">Pairing failed: %1$s</string>
