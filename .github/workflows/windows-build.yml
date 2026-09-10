@@ -44,7 +44,7 @@ jobs:
         working-directory: apps/desktop
         run: pnpm install --frozen-lockfile
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
 
       # The frontend build is wired into beforeBuildCommand (Tauri.toml), so
       # this single command covers tsc + vite + cargo + the NSIS bundler

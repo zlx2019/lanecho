@@ -35,7 +35,7 @@ jobs:
       - name: Build frontend
         working-directory: apps/desktop
         run: pnpm install --frozen-lockfile && pnpm build
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
       - name: cargo fmt
         run: cargo fmt --all -- --check
       - name: cargo clippy
@@ -54,7 +54,7 @@ jobs:
         os: [macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v7
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
       - name: cargo clippy (lanecho-core)
         run: cargo clippy -p lanecho-core --all-targets -- -D warnings
 
@@ -80,7 +80,7 @@ jobs:
       - name: Build frontend
         working-directory: apps/desktop
         run: pnpm install --frozen-lockfile && pnpm build
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
       - uses: taiki-e/install-action@v2
         with:
           tool: nextest
