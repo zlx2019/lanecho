@@ -860,6 +860,16 @@ pub fn get_slot_hotkey_failures(state: State<'_, AppState>) -> Vec<u8> {
     lock(&state.slot_hotkey_failures).clone()
 }
 
+/// Which ignore regexes compile, index-aligned with the input (false = the
+/// rule is matched as plain text); the ignore page marks those rules
+#[tauri::command]
+pub fn check_ignore_regexes(patterns: Vec<String>) -> Vec<bool> {
+    patterns
+        .iter()
+        .map(|pattern| crate::ignore::regex_compiles(pattern))
+        .collect()
+}
+
 /// Pick an application through the system file dialog and resolve it into an
 /// ignore entry (macOS: .app bundle → bundle identifier; Windows: .exe →
 /// lowercased file name). Ok(None) when the user cancels, or on platforms

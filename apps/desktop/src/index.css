@@ -181,6 +181,13 @@ textarea {
   color: var(--color-mist);
 }
 
+/* The tracked uppercase look is a Latin one: ideographs spaced 0.22em apart
+   read as "本 机 名 称", and 10px is below a comfortable CJK size */
+:lang(zh) .gauge-label {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
 /* Overlay-feeling scrollbars: invisible at rest, a slim thumb fades in while
    the scroller is hovered (classic Chromium scrollbars turn permanent the
    moment they are styled — especially jarring on Windows, where they also

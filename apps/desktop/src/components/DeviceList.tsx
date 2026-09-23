@@ -6,11 +6,14 @@
 // section heading of its own — the tab navigation is the heading; the list
 // also holds paired but offline devices, greyed out, not just online ones
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { formatError, useI18n } from "../i18n";
 import { Button } from "./ModalShell";
 import type { DeviceDto } from "../types";
+
+/** How long an armed unpair button waits for its confirming click (ms) */
+const UNPAIR_CONFIRM_MS = 3000;
 
 /** Device list section (heading and pairing error row included) */
 export function DeviceList({
@@ -24,6 +27,12 @@ export function DeviceList({
   const { t } = useI18n();
   const [pairingWith, setPairingWith] = useState<string | null>(null);
   const [pairError, setPairError] = useState("");
+  // Unpair takes two clicks: undoing it means pairing again on both devices,
+  // so a stray click must not do it. The first click arms the button, the
+  // arm lapses after a few seconds
+  const [armed, setArmed] = useState<string | null>(null);
+  const armTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => clearTimeout(armTimer.current), []);
 
   /** Start pairing (waits for the peer to confirm, with the button in a
    *  waiting state) */
@@ -40,8 +49,15 @@ export function DeviceList({
     }
   };
 
-  /** Unpair */
+  /** Unpair: the first click arms, a second one within the window acts */
   const unpair = (device: DeviceDto) => {
+    clearTimeout(armTimer.current);
+    if (armed !== device.fingerprint) {
+      setArmed(device.fingerprint);
+      armTimer.current = window.setTimeout(() => setArmed(null), UNPAIR_CONFIRM_MS);
+      return;
+    }
+    setArmed(null);
     setPairError("");
     api
       .unpairDevice(device.fingerprint)
@@ -82,8 +98,13 @@ export function DeviceList({
                 </span>
               )}
               {device.paired ? (
-                <Button variant="danger" onClick={() => unpair(device)}>
-                  {t.devices.unpair}
+                // Neutral until armed: the row's loudest control should not be
+                // the destructive one
+                <Button
+                  variant={armed === device.fingerprint ? "danger" : "ghost"}
+                  onClick={() => unpair(device)}
+                >
+                  {armed === device.fingerprint ? t.devices.unpairConfirm : t.devices.unpair}
                 </Button>
               ) : (
                 device.online && (

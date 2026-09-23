@@ -82,7 +82,7 @@ export function ToggleRow({
   return (
     <div className="mt-3 flex items-center gap-3">
       <div className="min-w-0 flex-1">
-        <div className="text-sm text-fog">{label}</div>
+        <div className="text-[13px] text-fog">{label}</div>
         {hint && <div className="mt-0.5 text-[11px] text-mist">{hint}</div>}
       </div>
       <button
