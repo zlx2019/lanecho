@@ -70,6 +70,24 @@ export function IgnorePane({
     [],
   );
 
+  // Regex rules the backend cannot compile (the regex crate has no
+  // lookaround, unlike the native client's ICU): they silently match as
+  // plain text, so the row says so. Asked of the backend, not JS RegExp —
+  // the two dialects disagree exactly on these cases
+  const [literalRegexes, setLiteralRegexes] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    let alive = true;
+    api
+      .checkIgnoreRegexes(ignore.regexes)
+      .then((ok) => {
+        if (alive) setLiteralRegexes(new Set(ignore.regexes.filter((_, i) => ok[i] === false)));
+      })
+      .catch(console.error);
+    return () => {
+      alive = false;
+    };
+  }, [ignore.regexes]);
+
   // The panel state resets on pane switch; the file editor follows external
   // changes only while not focused (it is the source of truth while editing)
   useEffect(() => {
@@ -239,9 +257,24 @@ export function IgnorePane({
                       <circle cx="8" cy="8" r="2.2" fill="currentColor" opacity="0.5" />
                     </svg>
                   ))}
-                <span className="font-gauge truncate text-sm text-fog">{row.primary}</span>
+                {/* App names are prose; types and patterns are code */}
+                <span
+                  className={`truncate text-sm text-fog ${pane === "apps" ? "" : "font-gauge"}`}
+                >
+                  {row.primary}
+                </span>
                 {row.secondary && (
-                  <span className="truncate text-[11px] text-mist">{row.secondary}</span>
+                  <span className="font-gauge truncate text-[11px] text-mist">
+                    {row.secondary}
+                  </span>
+                )}
+                {pane === "regex" && literalRegexes.has(row.id) && (
+                  <span
+                    title={t.ignore.regexLiteralHint}
+                    className="ml-auto shrink-0 self-center rounded border border-alert/40 px-1.5 text-[10px] leading-4 text-alert"
+                  >
+                    {t.ignore.regexLiteral}
+                  </span>
                 )}
               </button>
             ))}

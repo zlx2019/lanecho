@@ -187,6 +187,13 @@ impl IgnoreRules {
     }
 }
 
+/// Whether a regex rule compiles here; one that does not is matched as a
+/// literal substring (see [`IgnoreRules::new`]), which the settings page
+/// flags on the rule
+pub fn regex_compiles(pattern: &str) -> bool {
+    regex::Regex::new(pattern).is_ok()
+}
+
 /// Case-insensitive glob match over the fnmatch subset the Swift side uses:
 /// `*` (any run, `/` included — FNM_PATHNAME is not set there), `?` (any one
 /// character), `[..]` character classes with `!`/`^` negation and `a-z`
@@ -376,6 +383,15 @@ mod tests {
                 .suppress_sync,
             "An uncompilable pattern degrades to a literal substring check"
         );
+    }
+
+    /// The settings-page flag agrees with the matcher: lookaround (fine in
+    /// the native client's ICU dialect) does not compile here
+    #[test]
+    fn regex_compiles_flags_literal_fallbacks() {
+        assert!(regex_compiles(r"^\d{6}$"));
+        assert!(!regex_compiles("(?=secret)"));
+        assert!(!regex_compiles("([invalid"));
     }
 
     /// File rule: name vs full-path globs, comments, filtering semantics

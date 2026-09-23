@@ -101,6 +101,10 @@ export const api = {
   /** Pick an application through the system dialog and resolve it into an
    *  ignore entry (null when the user cancels) */
   pickIgnoredApp: () => invoke<IgnoredApp | null>("pick_ignored_app"),
+  /** Which ignore regexes compile (index-aligned; false = matched as plain
+   *  text) */
+  checkIgnoreRegexes: (patterns: string[]) =>
+    invoke<boolean[]>("check_ignore_regexes", { patterns }),
   /** Whether auto-paste can work on this machine */
   autoPasteStatus: () => invoke<AutoPasteStatus>("auto_paste_status"),
   /** Ask for the permission auto-paste needs (macOS raises the system

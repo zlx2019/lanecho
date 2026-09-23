@@ -233,6 +233,7 @@ pub fn run() {
             commands::request_auto_paste_permission,
             commands::window_effects_active,
             commands::get_slot_hotkey_failures,
+            commands::check_ignore_regexes,
             commands::pick_ignored_app,
         ])
         .build(tauri::generate_context!())
@@ -607,6 +608,35 @@ fn place_panel_at_tray(icon: IconRect, panel: (i32, i32), area: MonitorRect) -> 
     )
 }
 
+/// Where the panel goes when the hotkey opens it at the pointer (pure
+/// geometry, unit tested)
+///
+/// Context-menu placement, axis by axis: open down and to the right of the
+/// pointer, and flip to the other side of the pointer on an axis where that
+/// side does not fit. Clamping alone would slide the panel back under the
+/// pointer near the right or bottom edge, leaving the pointer over the rows
+/// (it highlights whatever it lands on). Only a work area too small for
+/// either side falls back to the clamp.
+fn place_panel_at_cursor(cursor: (i32, i32), panel: (i32, i32), area: MonitorRect) -> (i32, i32) {
+    /// One axis: after the pointer if it fits, else before it; the clamp
+    /// still applies (a pointer up in the menu bar sits above the work area)
+    fn axis(pointer: i32, size: i32, low: i32, high: i32) -> i32 {
+        let start = if pointer + size <= high {
+            pointer
+        } else if pointer - size >= low {
+            pointer - size
+        } else {
+            pointer
+        };
+        start.clamp(low, (high - size).max(low))
+    }
+    let (panel_w, panel_h) = panel;
+    (
+        axis(cursor.0, panel_w, area.left, area.right),
+        axis(cursor.1, panel_h, area.top, area.bottom),
+    )
+}
+
 /// What the panel is positioned against when it opens
 #[derive(Clone, Copy)]
 enum PanelAnchor {
@@ -690,17 +720,10 @@ fn show_panel(app: &tauri::AppHandle, anchor: PanelAnchor) {
                     (panel_size.width as i32, panel_size.height as i32),
                     area,
                 ),
-                // The pointer anchors the panel's top-left corner and it
-                // expands down and right from there, the way it always has
-                None => (
-                    (ref_x as i32).clamp(
-                        area.left,
-                        (area.right - panel_size.width as i32).max(area.left),
-                    ),
-                    (ref_y as i32).clamp(
-                        area.top,
-                        (area.bottom - panel_size.height as i32).max(area.top),
-                    ),
+                None => place_panel_at_cursor(
+                    (ref_x as i32, ref_y as i32),
+                    (panel_size.width as i32, panel_size.height as i32),
+                    area,
                 ),
             };
             (x, y) = (f64::from(placed.0), f64::from(placed.1));
@@ -1394,6 +1417,90 @@ mod tray_panel_layout_tests {
         };
         let (x, y) = place_panel_at_tray(icon(280.0, 280.0), PANEL, tiny);
         assert_eq!((x, y), (0, 0));
+    }
+}
+
+#[cfg(test)]
+mod cursor_panel_layout_tests {
+    use super::*;
+
+    /// Panel size used throughout (380×480, as configured)
+    const PANEL: (i32, i32) = (380, 480);
+
+    /// A macOS-like 1512×982 work area below a 25px menu bar
+    fn area() -> MonitorRect {
+        MonitorRect {
+            left: 0,
+            top: 25,
+            right: 1512,
+            bottom: 982,
+        }
+    }
+
+    /// Whether the pointer ends up over the panel (the defect: it lands on
+    /// the rows and highlights one)
+    fn covers(origin: (i32, i32), pointer: (i32, i32)) -> bool {
+        pointer.0 > origin.0
+            && pointer.0 < origin.0 + PANEL.0
+            && pointer.1 > origin.1
+            && pointer.1 < origin.1 + PANEL.1
+    }
+
+    /// Room on both sides: the top-left corner sits at the pointer
+    #[test]
+    fn opens_down_and_right_when_it_fits() {
+        assert_eq!(place_panel_at_cursor((300, 200), PANEL, area()), (300, 200));
+    }
+
+    /// Top right: flips left (its right edge at the pointer) instead of
+    /// sliding back under it
+    #[test]
+    fn flips_left_near_the_right_edge() {
+        let pointer = (1400, 200);
+        let origin = place_panel_at_cursor(pointer, PANEL, area());
+        assert_eq!(origin, (1400 - 380, 200));
+        assert!(!covers(origin, pointer));
+    }
+
+    /// Bottom left: flips up (its bottom edge at the pointer)
+    #[test]
+    fn flips_up_near_the_bottom_edge() {
+        let pointer = (100, 900);
+        let origin = place_panel_at_cursor(pointer, PANEL, area());
+        assert_eq!(origin, (100, 900 - 480));
+        assert!(!covers(origin, pointer));
+    }
+
+    /// Bottom right (the reported case): flips on both axes
+    #[test]
+    fn flips_both_ways_in_the_bottom_right_corner() {
+        let pointer = (1450, 950);
+        let origin = place_panel_at_cursor(pointer, PANEL, area());
+        assert_eq!(origin, (1450 - 380, 950 - 480));
+        assert!(!covers(origin, pointer));
+    }
+
+    /// Pointer up in the menu bar, above the work area: the panel still
+    /// starts at the work area's top
+    #[test]
+    fn pointer_in_the_menu_bar_clamps_to_the_work_area_top() {
+        let origin = place_panel_at_cursor((1450, 10), PANEL, area());
+        assert_eq!(origin, (1450 - 380, 25));
+    }
+
+    /// Fits on neither side of the pointer: falls back to the clamp, still
+    /// inside the work area (secondary monitor with a negative origin)
+    #[test]
+    fn falls_back_to_the_clamp_when_neither_side_fits() {
+        let short = MonitorRect {
+            left: -1280,
+            top: 0,
+            right: 0,
+            bottom: 700,
+        };
+        let (x, y) = place_panel_at_cursor((-700, 350), PANEL, short);
+        assert_eq!(x, -700, "horizontal room is fine");
+        assert_eq!(y, 700 - 480, "vertical falls back to the bottom clamp");
     }
 }
 

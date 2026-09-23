@@ -91,10 +91,11 @@ final class PanelController: NSObject, NSWindowDelegate {
         var frame = panel.frame
         frame.size = NSSize(width: width, height: height)
         frame.origin.y = top - height
+        // A plain clamp, not placePanel: flipping sides here would make the
+        // panel (and the search field being typed into) jump
         if let visible = (panel.screen ?? NSScreen.main)?.visibleFrame {
-            frame.origin = placePanel(
-                anchor: NSPoint(x: frame.minX, y: frame.maxY),
-                size: frame.size, visibleFrame: visible)
+            frame.origin = clampPanel(
+                origin: frame.origin, size: frame.size, visibleFrame: visible)
         }
         panel.setFrame(frame, display: true)
     }
@@ -119,8 +120,9 @@ final class PanelController: NSObject, NSWindowDelegate {
         show()
     }
 
-    /// Show on the screen the pointer is on, clamped to its edges; takes key
-    /// but never activates the app
+    /// Show on the screen the pointer is on, beside the pointer (flipping away
+    /// from the edges it would not fit against); takes key but never
+    /// activates the app
     func show() {
         content.prepareForShow()
         let mouse = NSEvent.mouseLocation

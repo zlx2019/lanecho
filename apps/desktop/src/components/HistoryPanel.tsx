@@ -26,7 +26,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api } from "../api";
 import { EVENTS } from "../events";
 import { formatError, useI18n, type Locale } from "../i18n";
-import { slotModLabel } from "../hotkeys";
+import { PANEL_KEYS, panelCommand, slotModLabel, type PanelCommand } from "../hotkeys";
 import { useTheme } from "../theme";
 import type { HistoryEntryDto, PreviewPayload } from "../types";
 import { Button } from "./ModalShell";
@@ -436,6 +436,44 @@ export function HistoryPanel() {
     api.clearHistory().catch((err) => setError(formatError(err)));
   }, []);
 
+  /** Open a window from the panel. The panel hides only **after the window
+   *  is shown**: hiding the panel calls app.hide() on macOS to step aside
+   *  entirely, and that decides based on whether any window is visible right
+   *  now — two concurrent IPC calls have no ordering guarantee, so a hide
+   *  that lands first takes the new window down with it (looks like "the
+   *  window pops up and vanishes, then comes back when you click the tray
+   *  again") */
+  const openWindow = useCallback(
+    (show: () => Promise<void>) => void show().catch(console.error).finally(dismiss),
+    [dismiss],
+  );
+
+  /** Run a keyboard command (footer menu items and entry actions) */
+  const runCommand = (command: PanelCommand) => {
+    const entry = filtered[highlight];
+    switch (command) {
+      case "delete":
+        if (entry) {
+          // The highlight keeps its index and lands on the next entry
+          inputSourceRef.current = "keyboard";
+          remove(entry);
+        }
+        break;
+      case "pin":
+        if (entry) togglePin(entry);
+        break;
+      case "clear":
+        setClearAsking(true);
+        break;
+      case "settings":
+        openWindow(api.showSettingsWindow);
+        break;
+      case "quit":
+        api.quitApp().catch(console.error);
+        break;
+    }
+  };
+
   const onKeyDown = (e: React.KeyboardEvent) => {
     // While the confirmation is up the panel answers no keys: Esc cancels the
     // dialog rather than hiding the panel, everything else is swallowed —
@@ -451,6 +489,15 @@ export function HistoryPanel() {
     // treated as list navigation — otherwise the panel disappears halfway
     // through typing a Chinese search
     if (e.nativeEvent.isComposing) return;
+    // Menu and entry commands (the native panel's set). They are taken ahead
+    // of the search field, which would otherwise eat ⌘⌫ as "delete to line
+    // start"; every one hinted in the footer or a row tooltip is handled here
+    const command = panelCommand(e.nativeEvent);
+    if (command) {
+      e.preventDefault();
+      runCommand(command);
+      return;
+    }
     // Shift (or Cmd, the macOS document convention) turns an arrow into a
     // jump to the far end of the list. It cannot be expressed as an arrow
     // with a large step: the step is relative to the current row, and jumping
@@ -557,23 +604,23 @@ export function HistoryPanel() {
           light, dark and vibrancy alike) + one extra step of top spacing */}
       <div className="shrink-0 border-t border-line-2 bg-abyss/50 px-1.5 pt-2.5 pb-2">
         {error && <div className="px-2.5 pb-1 text-[10px] text-alert">{error}</div>}
-        <MenuRow label={t.history.clear} onClick={() => setClearAsking(true)} />
-        {/* Menu items that open a window must **wait for the window to be
-            shown before hiding the panel**: hiding the panel calls app.hide()
-            on macOS to step aside entirely, and that decides based on whether
-            any window is visible right now — two concurrent IPC calls have no
-            ordering guarantee, so a hide that lands first takes the new
-            window down with it (looks like "the window pops up and vanishes,
-            then comes back when you click the tray again") */}
+        {/* Every hinted shortcut is really handled (runCommand) */}
+        <MenuRow
+          label={t.history.clear}
+          shortcut={PANEL_KEYS.clear}
+          onClick={() => setClearAsking(true)}
+        />
         <MenuRow
           label={t.history.settings}
-          onClick={() => void api.showSettingsWindow().catch(console.error).finally(dismiss)}
+          shortcut={PANEL_KEYS.settings}
+          onClick={() => openWindow(api.showSettingsWindow)}
         />
+        <MenuRow label={t.history.about} onClick={() => openWindow(api.showAbout)} />
         <MenuRow
-          label={t.history.about}
-          onClick={() => void api.showAbout().catch(console.error).finally(dismiss)}
+          label={t.history.quit}
+          shortcut={PANEL_KEYS.quit}
+          onClick={() => api.quitApp().catch(console.error)}
         />
-        <MenuRow label={t.history.quit} onClick={() => api.quitApp().catch(console.error)} />
       </div>
 
       {clearAsking && (
@@ -627,25 +674,29 @@ function ClearConfirm({
   );
 }
 
-/** Footer menu row (Maccy-style): label + optional trailing element such as a
- *  toggle. The text sits one level below the list entries — the menu is
- *  chrome, not content — and only rises to the primary colour on hover */
+/** Footer menu row (Maccy-style): label + optional shortcut hint. The text
+ *  sits one level below the list entries — the menu is chrome, not content —
+ *  and only rises to the primary colour on hover */
 function MenuRow({
   label,
-  right,
+  shortcut,
   onClick,
 }: {
   label: string;
-  right?: React.ReactNode;
+  shortcut?: string;
   onClick: () => void;
 }) {
   return (
     <button
       onClick={onClick}
-      className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-md px-2.5 py-1 text-left text-[12px] text-mist transition-colors hover:bg-sonar/10 hover:text-fog"
+      className="group flex w-full cursor-pointer items-center justify-between gap-2 rounded-md px-2.5 py-1 text-left text-[12px] text-mist transition-colors hover:bg-sonar/10 hover:text-fog"
     >
       <span className="min-w-0 truncate">{label}</span>
-      {right}
+      {shortcut && (
+        <span className="font-gauge shrink-0 text-[10px] text-faint group-hover:text-mist">
+          {shortcut}
+        </span>
+      )}
     </button>
   );
 }
@@ -719,7 +770,7 @@ const PanelRow = memo(function PanelRow({
           so the row width never jumps) */}
       <div className="hidden shrink-0 items-center gap-0.5 group-hover:flex">
         <button
-          title={entry.pinned ? t.history.unpin : t.history.pin}
+          title={`${entry.pinned ? t.history.unpin : t.history.pin} (${PANEL_KEYS.pin})`}
           onClick={(e) => {
             e.stopPropagation();
             onPin(entry);
@@ -731,7 +782,7 @@ const PanelRow = memo(function PanelRow({
           <PinIcon />
         </button>
         <button
-          title={t.history.delete}
+          title={`${t.history.delete} (${PANEL_KEYS.delete})`}
           onClick={(e) => {
             e.stopPropagation();
             onDelete(entry);

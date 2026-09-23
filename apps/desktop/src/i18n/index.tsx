@@ -67,6 +67,8 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   const setLang = useCallback((next: Lang) => {
     current = { lang: next, t: LOCALES[next] };
     setLangState(next);
+    // The document language drives the CJK label style (index.css :lang)
+    document.documentElement.lang = next === "zh" ? "zh-CN" : "en";
   }, []);
 
   useEffect(() => {

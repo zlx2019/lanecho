@@ -7,15 +7,19 @@
 // resize_settings_window): there are not many settings, and a fixed large
 // window would be mostly empty. The width is left alone, so a width the user
 // dragged to is preserved.
+//
+// Every setting applies the moment it changes, as in the native client:
+// choices on click, typed fields on Enter / blur. There is no save button.
 
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
 import { EVENTS } from "./events";
 import { DeviceList } from "./components/DeviceList";
+import { HotkeyRecorder } from "./components/HotkeyRecorder";
 import { IgnorePane } from "./components/IgnorePane";
 import { PairRequestModal } from "./components/PairRequestModal";
-import { Button, ToggleRow } from "./components/ModalShell";
+import { ToggleRow } from "./components/ModalShell";
 import { useLanecho } from "./hooks/useLanecho";
 import { formatError, useI18n, type Lang } from "./i18n";
 import { useTheme, type ThemePref } from "./theme";
@@ -58,20 +62,24 @@ export default function App() {
       ),
   });
 
-  // Form state (submitted on save; it hangs off App so switching tabs never
-  // loses unsaved input)
+  // Latest settings for building patches: two commits inside one tick must
+  // stack, not both start from the same render's snapshot
+  const settingsRef = useRef<Settings | null>(null);
+  settingsRef.current = settings;
+  // Saves run one after another: each carries the whole object, so an older
+  // snapshot landing last would undo a newer change
+  const saveQueue = useRef<Promise<unknown>>(Promise.resolve());
+
+  // Device name draft (committed on Enter / blur through its own command; Esc
+  // sets the flag so the blur it causes reverts instead of committing)
   const [nickname, setNickname] = useState("");
-  const [portInput, setPortInput] = useState(0);
-  const [fileLimitInput, setFileLimitInput] = useState(32);
-  const [langChoice, setLangChoice] = useState<Lang>(lang);
-  const [tip, setTip] = useState("");
+  const nicknameCancelled = useRef(false);
+  // Error from the last failed change, shown under the current tab (cleared
+  // by the next successful change or a tab switch)
+  const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
   const [incognito, setIncognito] = useState(false);
   const [usage, setUsage] = useState(0);
-  const [hotkeyInput, setHotkeyInput] = useState("");
-  const [maxEntriesInput, setMaxEntriesInput] = useState(200);
-  const [previewDelayInput, setPreviewDelayInput] = useState(150);
-  const [saving, setSaving] = useState(false);
   const [slotFailures, setSlotFailures] = useState<number[]>([]);
   // Auto-paste availability: unsupported hides the whole row, unpermitted
   // keeps it but adds the permission hint (null until the first read lands)
@@ -81,17 +89,9 @@ export default function App() {
   const shellRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
-  // Timers that auto-hide the hints: a repeat trigger clears the old one, and
-  // unmount clears them all
-  const tipTimer = useRef<number | undefined>(undefined);
+  // Timer that auto-hides the "copied" hint (unmount clears it)
   const copiedTimer = useRef<number | undefined>(undefined);
-  useEffect(
-    () => () => {
-      clearTimeout(tipTimer.current);
-      clearTimeout(copiedTimer.current);
-    },
-    [],
-  );
+  useEffect(() => () => clearTimeout(copiedTimer.current), []);
 
   // Initial load: settings + history usage + incognito state (a tray toggle
   // echoes back over an event)
@@ -100,15 +100,7 @@ export default function App() {
     let alive = true;
     api
       .getSettings()
-      .then((s) => {
-        if (!alive) return;
-        setSettings(s);
-        setPortInput(s.tcpPort);
-        setFileLimitInput(s.maxSyncFileMb);
-        setHotkeyInput(s.panelHotkey);
-        setMaxEntriesInput(s.historyMaxEntries);
-        setPreviewDelayInput(s.previewDelayMs);
-      })
+      .then((s) => alive && setSettings(s))
       .catch(console.error);
     api
       .getIncognito()
@@ -170,7 +162,6 @@ export default function App() {
       setNickname(lanecho.self.name);
     }
   }, [lanecho.self]);
-  useEffect(() => setLangChoice(lang), [lang]);
 
   // Adaptive window height: whenever the content height changes (a tab
   // switch, devices coming and going, a conflict hint appearing), shrink the
@@ -204,66 +195,62 @@ export default function App() {
     content.style.animation = "none";
     void content.offsetHeight;
     content.style.animation = "";
+    // An error belongs to the tab it happened on
+    setError("");
   }, [tab]);
 
-  /** Toggle settings: persisted the moment they change (all three toggles
-   *  share this semantic, matching the tray's behaviour) */
-  const patchSettings = (patch: Partial<Settings>) => {
-    // Refuse while a save is in flight: both paths persist the whole object,
-    // so run concurrently the one holding the older snapshot overwrites
-    // fields the other just wrote (and the hotkey is re-registered to its old
-    // value)
-    if (!settings || saving) return;
-    const next = { ...settings, ...patch };
+  /** Apply a change at once: update locally, persist in order. A failure
+   *  (an unusable hotkey, a failed write) is reported and the page re-reads
+   *  the settings, since the backend rolls the whole call back. Resolves
+   *  after the backend has applied the change */
+  const patchSettings = (patch: Partial<Settings>): Promise<void> => {
+    const current = settingsRef.current;
+    if (!current) return Promise.resolve();
+    const next = { ...current, ...patch };
+    settingsRef.current = next;
     setSettings(next);
-    api.saveSettings(next).catch((e) => setTip(formatError(e)));
+    const run = saveQueue.current.then(() => api.saveSettings(next));
+    saveQueue.current = run.catch(() => {});
+    return run
+      .then(() => setError(""))
+      .catch((e) => {
+        setError(formatError(e));
+        api
+          .getSettings()
+          .then((s) => {
+            settingsRef.current = s;
+            setSettings(s);
+          })
+          .catch(console.error);
+      });
   };
 
-  /** Save settings (the device name goes through its own command, everything
-   *  else is submitted as one object) */
-  const save = async () => {
-    if (!settings || saving) return;
-    setSaving(true);
-    setTip("");
-    try {
-      const trimmed = nickname.trim();
-      if (lanecho.self && trimmed !== lanecho.self.name) {
-        await api.setDisplayName(trimmed || null);
+  /** Re-read which slot hotkeys failed to register (after any change that
+   *  re-registers them) */
+  const refreshSlotFailures = () => {
+    api.getSlotHotkeyFailures().then(setSlotFailures).catch(console.error);
+  };
+
+  /** Commit the device name (Enter / blur): it goes through its own command,
+   *  identity.json being its only source of truth */
+  const commitNickname = () => {
+    const self = lanecho.self;
+    if (!self) return;
+    const trimmed = nickname.trim();
+    if (trimmed === self.name) {
+      setNickname(self.name);
+      return;
+    }
+    api
+      .setDisplayName(trimmed || null)
+      .then(() => {
+        setError("");
         // Let the next self refresh fill the field in: clearing it falls back
         // to the hostname, and the actual new name has to show
         nicknameSynced.current = false;
         lanecho.refreshSelf();
-      }
-      const next: Settings = {
-        ...settings,
-        // Hand-typed numbers can go out of range: clamp to the valid domain
-        // before submitting (u16 / a 10k entry cap)
-        tcpPort: Math.min(65535, Math.max(0, Math.round(portInput) || 0)),
-        language: langChoice,
-        panelHotkey: hotkeyInput.trim(),
-        historyMaxEntries: Math.min(10000, Math.max(1, Math.round(maxEntriesInput) || 1)),
-        // Capped at 5s: anything longer amounts to "never shows", and the
-        // user will assume the feature is broken
-        previewDelayMs: Math.min(5000, Math.max(0, Math.round(previewDelayInput) || 0)),
-        maxSyncFileMb: Math.min(512, Math.max(1, Math.round(fileLimitInput) || 32)),
-      };
-      await api.saveSettings(next);
-      setSettings(next);
-      setPortInput(next.tcpPort);
-      setFileLimitInput(next.maxSyncFileMb);
-      setMaxEntriesInput(next.historyMaxEntries);
-      setPreviewDelayInput(next.previewDelayMs);
-      // Refresh the slot conflict hint after the hotkeys are re-registered
-      api.getSlotHotkeyFailures().then(setSlotFailures).catch(console.error);
-      if (langChoice !== lang) setLang(langChoice);
-      setTip(t.settings.saved);
-      clearTimeout(tipTimer.current);
-      tipTimer.current = window.setTimeout(() => setTip(""), 2500);
-    } catch (e) {
-      setTip(formatError(e));
-    } finally {
-      setSaving(false);
-    }
+      })
+      .catch((e) => setError(formatError(e)));
   };
 
   /** Copy the local fingerprint */
@@ -281,17 +268,6 @@ export default function App() {
 
   const themeTitle =
     pref === "system" ? t.header.toLight : pref === "light" ? t.header.toDark : t.header.toSystem;
-
-  // Save row: shared by three tabs (save submits every form field at once,
-  // regardless of which tab is open)
-  const saveRow = (
-    <div className="mt-4 flex items-center justify-end gap-3 border-t border-line pt-3">
-      {tip && <span className="max-w-64 truncate text-xs text-mist">{tip}</span>}
-      <Button variant="primary" onClick={save} disabled={saving}>
-        {t.settings.save}
-      </Button>
-    </div>
-  );
 
   return (
     <div ref={shellRef} className="flex h-full flex-col">
@@ -314,7 +290,8 @@ export default function App() {
       </header>
 
       {/* Tab navigation */}
-      <nav className="flex shrink-0 gap-6 border-b border-line px-6">
+      {/* gap-5: six English labels have to fit the 420px minimum width */}
+      <nav className="flex shrink-0 gap-5 border-b border-line px-6">
         {TABS.map((item) => (
           <button
             key={item}
@@ -339,6 +316,21 @@ export default function App() {
               <input
                 value={nickname}
                 onChange={(e) => setNickname(e.target.value)}
+                onBlur={() => {
+                  if (nicknameCancelled.current) {
+                    nicknameCancelled.current = false;
+                    setNickname(lanecho.self?.name ?? "");
+                    return;
+                  }
+                  commitNickname();
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.currentTarget.blur();
+                  if (e.key === "Escape") {
+                    nicknameCancelled.current = true;
+                    e.currentTarget.blur();
+                  }
+                }}
                 placeholder={t.settings.nicknamePlaceholder}
                 className="w-full rounded-md border border-line-2 bg-abyss/60 px-3 py-1.5 text-sm text-fog outline-none focus:border-sonar/60"
               />
@@ -348,8 +340,12 @@ export default function App() {
                 {LANGS.map(([value, label]) => (
                   <SegButton
                     key={value}
-                    active={langChoice === value}
-                    onClick={() => setLangChoice(value)}
+                    active={lang === value}
+                    onClick={() => {
+                      if (value === lang) return;
+                      setLang(value);
+                      void patchSettings({ language: value });
+                    }}
                   >
                     {label}
                   </SegButton>
@@ -373,14 +369,15 @@ export default function App() {
 
               <div className="gauge-label mt-4 mb-1">{t.settings.previewDelay}</div>
               <div className="flex items-center gap-2">
-                <input
-                  type="number"
+                {/* Capped at 5s: anything longer amounts to "never shows",
+                    and the user will assume the feature is broken */}
+                <NumberField
+                  value={settings?.previewDelayMs ?? 150}
                   min={0}
                   max={5000}
                   step={50}
-                  value={previewDelayInput}
-                  onChange={(e) => setPreviewDelayInput(Number(e.target.value) || 0)}
-                  className="font-gauge w-32 rounded-md border border-line-2 bg-abyss/60 px-3 py-1.5 text-sm text-fog outline-none focus:border-sonar/60"
+                  onCommit={(v) => patchSettings({ previewDelayMs: v })}
+                  className="w-32"
                 />
                 <span className="text-[11px] text-mist">{t.settings.previewDelayHint}</span>
               </div>
@@ -390,8 +387,6 @@ export default function App() {
                 checked={settings?.autostart ?? false}
                 onChange={(v) => patchSettings({ autostart: v })}
               />
-
-              {saveRow}
             </div>
           )}
 
@@ -455,17 +450,21 @@ export default function App() {
                 </div>
                 <div className="mt-1.5 text-[11px] text-mist">{t.sync.typesHint}</div>
 
-                <div className="gauge-label mt-4 mb-1">{t.sync.fileLimit}</div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min={1}
-                    max={512}
-                    value={fileLimitInput}
-                    onChange={(e) => setFileLimitInput(Number(e.target.value) || 0)}
-                    className="font-gauge w-24 rounded-md border border-line-2 bg-abyss/60 px-3 py-1.5 text-sm text-fog outline-none focus:border-sonar/60"
-                  />
-                  <span className="text-[11px] text-mist">{t.sync.fileLimitHint}</span>
+                {/* Only meaningful while files are synced: greyed out
+                    otherwise, the value is kept */}
+                <div className={`transition-opacity ${settings?.syncFiles ? "" : "opacity-45"}`}>
+                  <div className="gauge-label mt-4 mb-1">{t.sync.fileLimit}</div>
+                  <div className="flex items-center gap-2">
+                    <NumberField
+                      value={settings?.maxSyncFileMb ?? 32}
+                      min={1}
+                      max={512}
+                      disabled={!settings?.syncFiles}
+                      onCommit={(v) => patchSettings({ maxSyncFileMb: v })}
+                      className="w-24"
+                    />
+                    <span className="text-[11px] text-mist">{t.sync.fileLimitHint}</span>
+                  </div>
                 </div>
 
                 <div className="mt-3 truncate text-[11px] text-faint">
@@ -496,18 +495,15 @@ export default function App() {
 
                 <div className="gauge-label mt-4 mb-1">{t.settings.port}</div>
                 <div className="flex items-center gap-2">
-                  <input
-                    type="number"
+                  <NumberField
+                    value={settings?.tcpPort ?? 0}
                     min={0}
                     max={65535}
-                    value={portInput}
-                    onChange={(e) => setPortInput(Number(e.target.value) || 0)}
-                    className="font-gauge w-32 rounded-md border border-line-2 bg-abyss/60 px-3 py-1.5 text-sm text-fog outline-none focus:border-sonar/60"
+                    onCommit={(v) => patchSettings({ tcpPort: v })}
+                    className="w-32"
                   />
                   <span className="text-[11px] text-mist">{t.settings.portHint}</span>
                 </div>
-
-                {saveRow}
               </div>
             </>
           )}
@@ -519,13 +515,16 @@ export default function App() {
                 <span>{t.historySettings.maxEntries}</span>
                 <span className="normal-case">{t.historySettings.usage(formatBytes(usage))}</span>
               </div>
-              <input
-                type="number"
-                min={1}
-                max={10000}
-                value={maxEntriesInput}
-                onChange={(e) => setMaxEntriesInput(Number(e.target.value) || 1)}
-                className="font-gauge w-32 rounded-md border border-line-2 bg-abyss/60 px-3 py-1.5 text-sm text-fog outline-none focus:border-sonar/60"
+              {/* Same range as the native Stepper (50...1000): the index is
+                  rewritten whole on every copy, so a large cap costs on
+                  every copy (the backend itself does not clamp) */}
+              <NumberField
+                value={settings?.historyMaxEntries ?? 200}
+                min={50}
+                max={1000}
+                step={50}
+                onCommit={(v) => patchSettings({ historyMaxEntries: v })}
+                className="w-32"
               />
 
               <div className="gauge-label mt-4 mb-1">{t.historySettings.recordTypes}</div>
@@ -563,31 +562,27 @@ export default function App() {
                   </SegButton>
                 ))}
               </div>
-
-              {saveRow}
             </div>
           )}
 
-          {/* Hotkeys tab: the panel hotkey + direct paste from numbered
-              slots */}
           {/* Ignore tab: the four rule kinds (apps / types / regex / files) */}
           {tab === "ignore" && settings && (
             <IgnorePane
               ignore={settings.ignore}
-              onChange={(next) => patchSettings({ ignore: next })}
-              onError={setTip}
+              onChange={(next) => void patchSettings({ ignore: next })}
+              onError={setError}
             />
           )}
 
+          {/* Hotkeys tab: the panel hotkey + direct paste from numbered
+              slots */}
           {tab === "hotkeys" && (
             <div className="rounded-xl border border-line bg-panel px-4 py-3">
               <div className="gauge-label mb-1">{t.historySettings.panelHotkey}</div>
               <div className="flex items-center gap-2">
-                <input
-                  value={hotkeyInput}
-                  onChange={(e) => setHotkeyInput(e.target.value)}
-                  placeholder="CmdOrCtrl+Shift+C"
-                  className="font-gauge w-56 rounded-md border border-line-2 bg-abyss/60 px-3 py-1.5 text-sm text-fog outline-none focus:border-sonar/60"
+                <HotkeyRecorder
+                  value={settings?.panelHotkey ?? ""}
+                  onChange={(v) => void patchSettings({ panelHotkey: v }).then(refreshSlotFailures)}
                 />
                 <span className="text-[11px] text-mist">{t.historySettings.panelHotkeyHint}</span>
               </div>
@@ -596,14 +591,7 @@ export default function App() {
                 label={t.historySettings.slotHotkeys}
                 hint={t.historySettings.slotHotkeysHint}
                 checked={settings?.slotHotkeys ?? true}
-                onChange={(v) => {
-                  patchSettings({ slotHotkeys: v });
-                  // Toggling re-registers the hotkeys; refresh the conflict
-                  // hint shortly after
-                  setTimeout(() => {
-                    api.getSlotHotkeyFailures().then(setSlotFailures).catch(console.error);
-                  }, 300);
-                }}
+                onChange={(v) => void patchSettings({ slotHotkeys: v }).then(refreshSlotFailures)}
               />
               {(settings?.slotHotkeys ?? true) && (
                 <>
@@ -614,17 +602,10 @@ export default function App() {
                         <SegButton
                           key={value}
                           active={(settings?.slotModifier ?? "CmdOrCtrl") === value}
-                          onClick={() => {
-                            patchSettings({ slotModifier: value });
-                            // Same re-registration window as the toggle: the
-                            // new combination may collide with another app
-                            setTimeout(() => {
-                              api
-                                .getSlotHotkeyFailures()
-                                .then(setSlotFailures)
-                                .catch(console.error);
-                            }, 300);
-                          }}
+                          // The new combination may collide with another app
+                          onClick={() =>
+                            void patchSettings({ slotModifier: value }).then(refreshSlotFailures)
+                          }
                         >
                           {label}
                         </SegButton>
@@ -680,11 +661,11 @@ export default function App() {
                   )}
                 </>
               )}
-
-              {saveRow}
             </div>
           )}
 
+          {/* Failure of the last change, on whichever tab it happened */}
+          {error && <div className="mt-3 px-1 text-xs text-alert">{error}</div>}
         </div>
       </main>
 
@@ -724,6 +705,78 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** Numeric field committed on Enter / blur, clamped to [min, max]. The draft
+ *  is free text while typing: clearing the field leaves it empty instead of
+ *  snapping to a fallback digit the next keystroke would append to. An empty
+ *  or unreadable draft reverts; Esc reverts without committing */
+function NumberField({
+  value,
+  min,
+  max,
+  step,
+  disabled,
+  onCommit,
+  className,
+}: {
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  disabled?: boolean;
+  onCommit: (value: number) => void;
+  className: string;
+}) {
+  const [draft, setDraft] = useState(String(value));
+  const focused = useRef(false);
+  const cancelled = useRef(false);
+  // Follow the stored value unless the user is typing
+  useEffect(() => {
+    if (!focused.current) setDraft(String(value));
+  }, [value]);
+
+  const commit = () => {
+    const parsed = Math.round(Number(draft));
+    const next =
+      draft.trim() === "" || !Number.isFinite(parsed)
+        ? value
+        : Math.min(max, Math.max(min, parsed));
+    setDraft(String(next));
+    if (next !== value) onCommit(next);
+  };
+
+  return (
+    <input
+      type="number"
+      min={min}
+      max={max}
+      step={step}
+      disabled={disabled}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onFocus={() => {
+        focused.current = true;
+      }}
+      onBlur={() => {
+        focused.current = false;
+        if (cancelled.current) {
+          cancelled.current = false;
+          setDraft(String(value));
+          return;
+        }
+        commit();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+        if (e.key === "Escape") {
+          cancelled.current = true;
+          e.currentTarget.blur();
+        }
+      }}
+      className={`font-gauge rounded-md border border-line-2 bg-abyss/60 px-3 py-1.5 text-sm text-fog outline-none focus:border-sonar/60 disabled:cursor-not-allowed ${className}`}
+    />
+  );
 }
 
 /** Radio option: dot + label (for inline radio groups such as the sync
