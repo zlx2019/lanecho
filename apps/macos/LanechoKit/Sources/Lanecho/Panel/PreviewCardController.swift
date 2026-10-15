@@ -159,6 +159,11 @@ final class PreviewCardController {
         container.layer?.add(pop, forKey: "pop-in")
     }
 
+    /// The card's screen frame while it is up; nil while hidden or fading out
+    var shownFrame: NSRect? {
+        panel.isVisible && !fadingOut ? panel.frame : nil
+    }
+
     /// Hide the card: a quick fade-out, then it really goes away; a show in
     /// the meantime interrupts it
     func hide() {

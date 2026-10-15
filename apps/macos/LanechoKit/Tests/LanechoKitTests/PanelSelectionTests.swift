@@ -1,5 +1,6 @@
-// Boundaries of the selection decision made after the list refreshes, and of
-// the hover decision made on every mouse move
+// Boundaries of the selection decision made after the list refreshes, of the
+// hover decision made on every mouse move, and of the decision made as the
+// pointer leaves the panel
 
 import CoreGraphics
 import Testing
@@ -93,6 +94,64 @@ private let listRect = CGRect(x: 0, y: 100, width: 360, height: 300)
     #expect(hoverRow(point: CGPoint(x: 180, y: 40), listRect: listRect, rowAtPoint: 15) == nil)
     // Same story above the list, where the search field is
     #expect(hoverRow(point: CGPoint(x: 180, y: 430), listRect: listRect, rowAtPoint: 0) == nil)
+}
+
+/// Panel and card frames for the exit tests: by default the card sits 8pt to
+/// the right of the panel, and it flips to the left near the screen's right
+/// edge
+private let exitPanel = CGRect(x: 400, y: 200, width: 360, height: 480)
+private let cardOnRight = CGRect(x: 768, y: 300, width: 320, height: 240)
+private let cardOnLeft = CGRect(x: 72, y: 300, width: 320, height: 240)
+
+/// Leaving through the edge that faces the card buys the grace period,
+/// whichever side the card is on
+@Test func exitTowardTheCardHeadsForIt() {
+    #expect(
+        exitHeadsForCard(
+            pointer: CGPoint(x: 761, y: 450), panelFrame: exitPanel, cardFrame: cardOnRight))
+    #expect(
+        exitHeadsForCard(
+            pointer: CGPoint(x: 399, y: 450), panelFrame: exitPanel, cardFrame: cardOnLeft))
+    // Reported on the edge itself
+    #expect(
+        exitHeadsForCard(
+            pointer: CGPoint(x: 760, y: 450), panelFrame: exitPanel, cardFrame: cardOnRight))
+}
+
+/// **Regression guard**: leaving through the side away from the card gives
+/// the highlight up at once.
+///
+/// This is the reported defect: a sideways exit leaves no move inside the
+/// panel to give the highlight up, so the row stayed lit and its card stayed
+/// up after the pointer had gone. Make this function answer true for every
+/// exit and these assertions must go red.
+@Test func exitAwayFromTheCardDoesNot() {
+    #expect(
+        !exitHeadsForCard(
+            pointer: CGPoint(x: 399, y: 450), panelFrame: exitPanel, cardFrame: cardOnRight))
+    #expect(
+        !exitHeadsForCard(
+            pointer: CGPoint(x: 761, y: 450), panelFrame: exitPanel, cardFrame: cardOnLeft))
+}
+
+/// Leaving through the top or bottom edge is not headed for a card beside the
+/// panel
+@Test func exitThroughTopOrBottomDoesNotHeadForTheCard() {
+    #expect(
+        !exitHeadsForCard(
+            pointer: CGPoint(x: 600, y: 681), panelFrame: exitPanel, cardFrame: cardOnRight))
+    #expect(
+        !exitHeadsForCard(
+            pointer: CGPoint(x: 600, y: 199), panelFrame: exitPanel, cardFrame: cardOnRight))
+}
+
+/// A card overlapping the panel (the narrow-screen fallback) counts for every
+/// exit
+@Test func exitWithAnOverlappingCardAlwaysHeadsForIt() {
+    let overlapping = CGRect(x: 600, y: 300, width: 320, height: 240)
+    #expect(
+        exitHeadsForCard(
+            pointer: CGPoint(x: 399, y: 450), panelFrame: exitPanel, cardFrame: overlapping))
 }
 
 /// An out-of-range restoredIndex is not trusted; the row-number fallback takes
