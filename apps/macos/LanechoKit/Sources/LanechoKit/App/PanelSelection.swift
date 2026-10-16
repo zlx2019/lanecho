@@ -58,3 +58,28 @@ public func hoverRow(point: CGPoint, listRect: CGRect, rowAtPoint: Int) -> Int? 
     guard listRect.contains(point), rowAtPoint >= 0 else { return nil }
     return rowAtPoint
 }
+
+/// Whether a pointer that has just left the panel is headed for the preview
+/// card, which buys it a grace period before the highlight goes: the card sits
+/// beside the panel with a gap in between, so giving the highlight up right at
+/// the panel edge would take the card down before the pointer could reach it
+///
+/// "Headed for" means it left through the edge on the card's side; leaving
+/// through the far side, the top or the bottom gives the highlight up at once.
+/// A card overlapping the panel (the fallback when the screen fits it on
+/// neither side) counts for every exit.
+///
+/// - Parameters:
+///   - pointer: pointer position as it left, in screen coordinates
+///   - panelFrame: the panel's screen frame
+///   - cardFrame: the card's screen frame
+public func exitHeadsForCard(pointer: CGPoint, panelFrame: CGRect, cardFrame: CGRect) -> Bool {
+    // 1pt of slack: the exit can be reported on the edge itself
+    if cardFrame.minX >= panelFrame.maxX {
+        return pointer.x >= panelFrame.maxX - 1
+    }
+    if cardFrame.maxX <= panelFrame.minX {
+        return pointer.x <= panelFrame.minX + 1
+    }
+    return true
+}

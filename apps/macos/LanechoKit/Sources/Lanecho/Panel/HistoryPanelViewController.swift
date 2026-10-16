@@ -7,11 +7,16 @@
 //   "focus is in a text field, the keyboard drives the list"
 // - Decoupled highlighting: hover goes through NSTrackingArea's .mouseMoved,
 //   which answers physical mouse movement only, so a row sliding under a
-//   stationary cursor as the list scrolls does **not** trigger it. SwiftUI's
-//   onHover is enter/exit semantics and cannot manage this; it fights keyboard
-//   navigation over the highlight. The area covers the whole panel: on the
+//   stationary cursor as keyboard navigation scrolls the list does **not**
+//   trigger it. SwiftUI's onHover is enter/exit semantics and cannot manage
+//   this; it fights keyboard navigation over the highlight. Scrolling with
+//   the user's own wheel or trackpad is the exception and re-runs the hover
+//   decision (listDidLiveScroll). The area covers the whole panel: on the
 //   table alone the moves stop dead at its edge, and the list never gets to
 //   give up the highlight on its way to the footer
+// - A highlight the pointer put there leaves with the pointer, whether it
+//   moves off the rows or out of the panel — except on its way to the preview
+//   card, which gets a grace period to cross the gap (mouseExited)
 // - The list refreshes through reloadData with the selection restored by entry
 //   id, with no view-identity diff (SwiftUI's ForEach(id:) layered with
 //   .id(index) is a dual-identity conflict that scrambles row content)
@@ -41,6 +46,18 @@ final class HistoryPanelViewController: NSViewController {
     private static let listHeightRange: ClosedRange<CGFloat> = 90...420
     /// Content width of the in-panel alert; title and buttons share it
     private static let overlayContentWidth: CGFloat = 208
+    /// How long the pointer may take from leaving the panel to landing on the
+    /// card before the highlight it left with is given up: ample for the 8pt
+    /// gap, and short enough not to linger after an exit that misses the card
+    private static let cardReachGrace: Duration = .milliseconds(200)
+    /// How long the pointer may be off the card, once it has been on it,
+    /// before the highlight goes: just enough to cross back to the panel
+    /// without the card flickering. 300ms read as the card lagging behind a
+    /// pointer that had already left
+    private static let cardLeaveGrace: Duration = .milliseconds(100)
+    /// Pointer sampling interval while it is out of the panel on the card's
+    /// side, which adds up to one interval on top of either grace
+    private static let exitWatchInterval: Duration = .milliseconds(30)
 
     private let core: AppCore
     /// Hide-panel callback, for Esc and a completed restore
@@ -113,6 +130,13 @@ final class HistoryPanelViewController: NSViewController {
     /// Preview card delay in milliseconds, re-read from settings on every
     /// panel open
     private var previewDelayMs: UInt32 = 150
+    /// Whether the pointer put the current highlight there, as opposed to the
+    /// keyboard, a fresh open or a search setting it as the keyboard's
+    /// starting point; only a pointer-made highlight leaves with the pointer
+    private var hoverOwnsHighlight = false
+    /// Pointer watch while it is out of the panel on its way to the card, see
+    /// watchPointerOnTheWayToCard
+    private var exitWatch: Task<Void, Never>?
     /// Whether direct slot pastes are on, which decides if the slot hints
     /// appear on the right of a row
     private var slotHotkeysEnabled = true
@@ -150,10 +174,12 @@ final class HistoryPanelViewController: NSViewController {
         // table view the events stop the instant the pointer leaves it, so
         // moving from a row down to a footer menu row never delivered the move
         // that gives up the highlight — a row stayed lit next to the
-        // highlighted menu row, reading as two selections
+        // highlighted menu row, reading as two selections. Enter and exit
+        // cover leaving the panel sideways, see mouseExited
         effect.addTrackingArea(
             NSTrackingArea(
-                rect: .zero, options: [.mouseMoved, .activeAlways, .inVisibleRect],
+                rect: .zero,
+                options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect],
                 owner: self, userInfo: nil))
         // No preferredContentSize: the window height comes from
         // preferredHeight hugging the content, and setting it makes AppKit
@@ -281,6 +307,9 @@ final class HistoryPanelViewController: NSViewController {
         scrollView.hasVerticalScroller = true
         scrollView.drawsBackground = false
         scrollView.contentInsets = NSEdgeInsets(top: 5, left: 0, bottom: 5, right: 0)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(listDidLiveScroll(_:)),
+            name: NSScrollView.didLiveScrollNotification, object: scrollView)
     }
 
     /// Footer menu area: the sync toggle plus three menu rows, with menu-style
@@ -469,6 +498,7 @@ final class HistoryPanelViewController: NSViewController {
     func prepareForShow() {
         dismissOverlay()
         searchField.stringValue = ""
+        handHighlightToKeyboard()
         cancelPreview()
         Task {
             let settings = await core.currentSettings()
@@ -485,8 +515,9 @@ final class HistoryPanelViewController: NSViewController {
     }
 
     /// Runs with the panel hiding, on every path that hides it: stop the timer
-    /// and take the card down
+    /// and the pointer watch, and take the card down
     func panelDidHide() {
+        stopExitWatch()
         cancelPreview()
     }
 
@@ -553,6 +584,11 @@ final class HistoryPanelViewController: NSViewController {
         let previous = resetSelection ? nil : selectedEntryId()
         let previousRow = tableView.selectedRow
         let hadSelection = previousRow >= 0
+        if resetSelection {
+            // The first row is the keyboard's starting point, not a pointer
+            // pick
+            handHighlightToKeyboard()
+        }
         entries = filtered
         tableView.reloadData()
         // Menu-style hugging: a change in entry count changes the window
@@ -576,6 +612,12 @@ final class HistoryPanelViewController: NSViewController {
             if restored == nil {
                 tableView.scrollRowToVisible(row)
             }
+        } else {
+            // Nothing selected now (no results, or nothing was selected
+            // before). reloadData drops the selection without posting
+            // selectionDidChange, so a card still up for the old highlight
+            // would otherwise outlive it beside the emptied list
+            cancelPreview()
         }
     }
 
@@ -625,6 +667,7 @@ final class HistoryPanelViewController: NSViewController {
     /// Move the highlight from the keyboard; only this path scrolls
     private func moveSelection(_ delta: Int) {
         guard !entries.isEmpty else { return }
+        handHighlightToKeyboard()
         let current = tableView.selectedRow
         let next = min(max(0, current < 0 ? 0 : current + delta), entries.count - 1)
         tableView.selectRowIndexes([next], byExtendingSelection: false)
@@ -640,6 +683,7 @@ final class HistoryPanelViewController: NSViewController {
     /// wrong way
     private func jumpSelection(toFirst: Bool) {
         guard !entries.isEmpty else { return }
+        handHighlightToKeyboard()
         let row = toFirst ? 0 : entries.count - 1
         tableView.selectRowIndexes([row], byExtendingSelection: false)
         tableView.scrollRowToVisible(row)
@@ -741,31 +785,161 @@ final class HistoryPanelViewController: NSViewController {
         Task { _ = await core.deleteEntry(id: id) }
     }
 
-    // MARK: - Hover (decoupled highlighting: the selection changes only on
-    // physical mouse movement, and never scrolls)
+    // MARK: - Hover (decoupled highlighting: the selection follows the pointer
+    // only when the pointer, or the user's own scrolling, moves it; hover
+    // never scrolls)
 
     override func mouseMoved(with event: NSEvent) {
         guard !confirming else { return }
-        // The point goes through hoverRow twice over: once in panel space to
-        // clip against the list area, once in table space for the row number.
-        // The clip is what keeps a scrolled list from answering for points
-        // that are really on the footer, see hoverRow
-        let row = hoverRow(
-            point: view.convert(event.locationInWindow, from: nil),
-            listRect: scrollView.frame,
-            rowAtPoint: tableView.row(at: tableView.convert(event.locationInWindow, from: nil)))
+        updateHover(windowPoint: event.locationInWindow)
+    }
+
+    /// The hover decision, shared by pointer moves and user scrolling: the row
+    /// the pointer is on takes the highlight, anywhere off the rows gives it
+    /// up
+    private func updateHover(windowPoint: NSPoint) {
+        let row = Self.pointerRow(
+            atWindowPoint: windowPoint, tableView: tableView, scrollView: scrollView)
         guard let row else {
-            // The pointer moved into the search area or the footer, so the
-            // list has to give up the highlight; otherwise one row in the list
-            // and one footer menu row light up at once, which reads as two
-            // selections
-            if tableView.selectedRow >= 0 {
-                tableView.deselectAll(nil)
-            }
+            // The pointer is off the rows (the search area, the footer, the
+            // blank space under a short list), so the list has to give up the
+            // highlight; otherwise one row in the list and one footer menu row
+            // light up at once, which reads as two selections
+            releaseHighlight()
             return
         }
+        hoverOwnsHighlight = true
         guard row != tableView.selectedRow else { return }
         tableView.selectRowIndexes([row], byExtendingSelection: false)
+    }
+
+    /// Row the pointer is on, from a point in window coordinates; nil = off
+    /// the rows
+    ///
+    /// The row is decided by the pointer's height alone, asking the table at
+    /// its horizontal midline. With a mouse plugged in, the system's automatic
+    /// scroll bar setting draws legacy scrollers, which take a 15pt column off
+    /// the table's right side, and a point over that column answers no row at
+    /// all — the move crossing it on the way out to a card on the right gave
+    /// the highlight up, and the card went down before the pointer could get
+    /// there. The point also goes through hoverRow in list space, whose clip
+    /// keeps a scrolled list from answering for points that are really on the
+    /// footer
+    static func pointerRow(
+        atWindowPoint point: NSPoint, tableView: NSTableView, scrollView: NSScrollView
+    ) -> Int? {
+        let inTable = tableView.convert(point, from: nil)
+        return hoverRow(
+            point: scrollView.convert(point, from: nil),
+            listRect: scrollView.bounds,
+            rowAtPoint: tableView.row(at: NSPoint(x: tableView.bounds.midX, y: inTable.y)))
+    }
+
+    /// The pointer left the rows: give up the highlight, and the card goes
+    /// with it through selectionDidChange
+    private func releaseHighlight() {
+        hoverOwnsHighlight = false
+        stopExitWatch()
+        if tableView.selectedRow >= 0 {
+            tableView.deselectAll(nil)
+        }
+    }
+
+    /// The keyboard, a fresh open or a search set the highlight: the pointer
+    /// leaving no longer takes it away
+    private func handHighlightToKeyboard() {
+        hoverOwnsHighlight = false
+        stopExitWatch()
+    }
+
+    /// The pointer left the panel. Leaving through the top or bottom already
+    /// gave the highlight up on the way, over the search field or the footer,
+    /// but a sideways exit leaves no move inside the panel to do that — so a
+    /// highlight the pointer put there goes now, unless the pointer is headed
+    /// for the card, which sits across a gap: giving up at the edge would take
+    /// the card down before the pointer could ever reach it
+    override func mouseExited(with event: NSEvent) {
+        guard hoverOwnsHighlight, !confirming, let window = view.window, window.isVisible
+        else { return }
+        let pointer = window.convertPoint(toScreen: event.locationInWindow)
+        // Still over the panel: another window, the row context menu, took
+        // the pointer without it leaving
+        guard !window.frame.insetBy(dx: 1, dy: 1).contains(pointer) else { return }
+        if let card = previewCard.shownFrame,
+            exitHeadsForCard(pointer: pointer, panelFrame: window.frame, cardFrame: card)
+        {
+            watchPointerOnTheWayToCard()
+        } else {
+            releaseHighlight()
+        }
+    }
+
+    /// Back in the panel: the next move decides the highlight again
+    override func mouseEntered(with event: NSEvent) {
+        stopExitWatch()
+    }
+
+    /// Keep the highlight, and its card, while the pointer crosses over to the
+    /// card or rests on it; give it up once the pointer has been on neither
+    /// the panel nor the card for longer than the grace — cardReachGrace
+    /// until it first lands on the card, the shorter cardLeaveGrace after that
+    ///
+    /// It samples the pointer instead of waiting for tracking events: a card
+    /// whose content fits passes the mouse through, so it never sees the
+    /// pointer arrive or leave
+    private func watchPointerOnTheWayToCard() {
+        stopExitWatch()
+        exitWatch = Task { [weak self] in
+            var lastOnTarget = ContinuousClock.now
+            var reachedCard = false
+            while !Task.isCancelled {
+                try? await Task.sleep(for: Self.exitWatchInterval)
+                guard let self, !Task.isCancelled, let window = view.window else { return }
+                let pointer = NSEvent.mouseLocation
+                if window.frame.contains(pointer) {
+                    // Back over the panel; mouseEntered normally gets here
+                    // first
+                    exitWatch = nil
+                    return
+                }
+                let grace = reachedCard ? Self.cardLeaveGrace : Self.cardReachGrace
+                if previewCard.shownFrame?.contains(pointer) == true {
+                    lastOnTarget = .now
+                    reachedCard = true
+                } else if ContinuousClock.now - lastOnTarget >= grace {
+                    releaseHighlight()
+                    return
+                }
+            }
+        }
+    }
+
+    private func stopExitWatch() {
+        exitWatch?.cancel()
+        exitWatch = nil
+    }
+
+    /// The user scrolled the list (wheel, trackpad, momentum or a scroller
+    /// drag), sliding new rows under a pointer that did not move: the
+    /// highlight follows the row under it now, as a menu's does, and a card
+    /// placed against the old row position comes down to be rescheduled. Left
+    /// alone, a card due mid-scroll would anchor to wherever its row had
+    /// scrolled off to and get clamped to the screen edge, beside a list with
+    /// no visible highlight
+    ///
+    /// Keyboard navigation's scrollRowToVisible is programmatic and posts no
+    /// live-scroll notification (verified, as was a wheel scroll posting one
+    /// per animation step), so this never fights the keyboard over the
+    /// highlight
+    @objc private func listDidLiveScroll(_ notification: Notification) {
+        guard !confirming, let window = view.window else { return }
+        let selected = tableView.selectedRow
+        updateHover(windowPoint: window.convertPoint(fromScreen: NSEvent.mouseLocation))
+        // A changed selection has already rescheduled through
+        // selectionDidChange
+        if tableView.selectedRow == selected {
+            schedulePreview()
+        }
     }
 
     // MARK: - Floating preview card
@@ -823,9 +997,13 @@ final class HistoryPanelViewController: NSViewController {
         // remote sync arriving mid-fetch refreshes the list, and the row
         // number stays the same while a different entry now sits there.
         // Comparing row numbers alone shows old content on the card while the
-        // highlight points at the new entry
-        guard tableView.selectedRow == row, entries.indices.contains(row),
-            entries[row].id == meta.id,
+        // highlight points at the new entry. A cancelled presentation must not
+        // land either: a newer selection, a user scroll or the panel closing
+        // took over while it fetched. And the row has to be on screen, or the
+        // anchor is wherever the row scrolled off to and the clamp drags the
+        // card to the screen edge
+        guard !Task.isCancelled, tableView.selectedRow == row, entries.indices.contains(row),
+            entries[row].id == meta.id, rowIsVisible(row),
             let window = view.window, window.isVisible
         else { return }
         let rowRect = tableView.convert(tableView.rect(ofRow: row), to: nil)
@@ -833,6 +1011,11 @@ final class HistoryPanelViewController: NSViewController {
         previewCard.show(
             content: content, meta: meta, appIcon: appIcon,
             panelFrame: window.frame, anchorTopY: anchorTopY, screen: window.screen)
+    }
+
+    /// Whether any part of the row is inside the list's visible area
+    private func rowIsVisible(_ row: Int) -> Bool {
+        scrollView.documentVisibleRect.intersects(tableView.rect(ofRow: row))
     }
 }
 
