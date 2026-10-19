@@ -71,21 +71,9 @@ feature-depth = 1
 # output a note when they are encountered.
 ignore = [
   { id = "RUSTSEC-2024-0370", reason = "proc-macro-error 停止维护, Tauri 传递依赖" },
-  { id = "RUSTSEC-2024-0411", reason = "GTK3 绑定停止维护, Tauri Linux 后端传递依赖" },
-  { id = "RUSTSEC-2024-0412", reason = "GTK3 绑定停止维护, Tauri Linux 后端传递依赖" },
-  { id = "RUSTSEC-2024-0413", reason = "GTK3 绑定停止维护, Tauri Linux 后端传递依赖" },
-  { id = "RUSTSEC-2024-0414", reason = "GTK3 绑定停止维护, Tauri Linux 后端传递依赖" },
-  { id = "RUSTSEC-2024-0415", reason = "GTK3 绑定停止维护, Tauri Linux 后端传递依赖" },
-  { id = "RUSTSEC-2024-0416", reason = "GTK3 绑定停止维护, Tauri Linux 后端传递依赖" },
-  { id = "RUSTSEC-2024-0417", reason = "GTK3 绑定停止维护, Tauri Linux 后端传递依赖" },
-  { id = "RUSTSEC-2024-0418", reason = "GTK3 绑定停止维护, Tauri Linux 后端传递依赖" },
-  { id = "RUSTSEC-2024-0419", reason = "GTK3 绑定停止维护, Tauri Linux 后端传递依赖" },
-  { id = "RUSTSEC-2024-0420", reason = "GTK3 绑定停止维护, Tauri Linux 后端传递依赖" },
-  { id = "RUSTSEC-2025-0075", reason = "unic-* 系列停止维护(unmaintained), Tauri 传递依赖" },
-  { id = "RUSTSEC-2025-0080", reason = "unic-* 系列停止维护(unmaintained), Tauri 传递依赖" },
-  { id = "RUSTSEC-2025-0081", reason = "unic-* 系列停止维护(unmaintained), Tauri 传递依赖" },
-  { id = "RUSTSEC-2025-0098", reason = "unic-* 系列停止维护(unmaintained), Tauri 传递依赖" },
-  { id = "RUSTSEC-2025-0100", reason = "unic-* 系列停止维护(unmaintained), Tauri 传递依赖" },
+  { id = "RUSTSEC-2026-0370", reason = "zvariant 并入 zbus 6 后停止单独维护, Tauri 插件经 zbus 5 传递依赖(Linux)" },
+  { id = "RUSTSEC-2026-0371", reason = "zbus_names 并入 zbus 6 后停止单独维护, Tauri 插件经 zbus 5 传递依赖(Linux)" },
+  { id = "RUSTSEC-2026-0372", reason = "zvariant_derive 并入 zbus 6 后停止单独维护, Tauri 插件经 zbus 5 传递依赖(Linux)" },
 ]
 # If this is true, then cargo deny will use the git executable to fetch advisory database.
 # If this is false, then it uses a built-in git library.
