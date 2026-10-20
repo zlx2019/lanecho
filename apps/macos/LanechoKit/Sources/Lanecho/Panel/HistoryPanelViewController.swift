@@ -17,6 +17,9 @@
 // - A highlight the pointer put there leaves with the pointer, whether it
 //   moves off the rows or out of the panel — except on its way to the preview
 //   card, which gets a grace period to cross the gap (mouseExited)
+// - Only a highlight the pointer or ↑/↓ made brings up the card: a fresh open
+//   highlights nothing, and the first match a search lands on holds its card
+//   back (previewHeld)
 // - The list refreshes through reloadData with the selection restored by entry
 //   id, with no view-identity diff (SwiftUI's ForEach(id:) layered with
 //   .id(index) is a dual-identity conflict that scrambles row content)
@@ -134,6 +137,10 @@ final class HistoryPanelViewController: NSViewController {
     /// keyboard, a fresh open or a search setting it as the keyboard's
     /// starting point; only a pointer-made highlight leaves with the pointer
     private var hoverOwnsHighlight = false
+    /// Whether the card for the current highlight is held back: a search
+    /// starts on its first match so Enter takes it, but brings up no card for
+    /// it. Set by a fresh start, released by highlightRow
+    private var previewHeld = false
     /// Pointer watch while it is out of the panel on its way to the card, see
     /// watchPointerOnTheWayToCard
     private var exitWatch: Task<Void, Never>?
@@ -586,8 +593,10 @@ final class HistoryPanelViewController: NSViewController {
         let hadSelection = previousRow >= 0
         if resetSelection {
             // Starting over is not a pointer pick: the first match a search
-            // lands on belongs to the keyboard
+            // lands on belongs to the keyboard, and its card waits for the
+            // pointer or ↑/↓
             handHighlightToKeyboard()
+            previewHeld = true
         }
         entries = filtered
         tableView.reloadData()
@@ -676,7 +685,7 @@ final class HistoryPanelViewController: NSViewController {
         handHighlightToKeyboard()
         let current = tableView.selectedRow
         let next = min(max(0, current < 0 ? 0 : current + delta), entries.count - 1)
-        tableView.selectRowIndexes([next], byExtendingSelection: false)
+        highlightRow(next)
         tableView.scrollRowToVisible(next)
     }
 
@@ -691,7 +700,7 @@ final class HistoryPanelViewController: NSViewController {
         guard !entries.isEmpty else { return }
         handHighlightToKeyboard()
         let row = toFirst ? 0 : entries.count - 1
-        tableView.selectRowIndexes([row], byExtendingSelection: false)
+        highlightRow(row)
         tableView.scrollRowToVisible(row)
     }
 
@@ -815,8 +824,7 @@ final class HistoryPanelViewController: NSViewController {
             return
         }
         hoverOwnsHighlight = true
-        guard row != tableView.selectedRow else { return }
-        tableView.selectRowIndexes([row], byExtendingSelection: false)
+        highlightRow(row)
     }
 
     /// Row the pointer is on, from a point in window coordinates; nil = off
@@ -856,6 +864,20 @@ final class HistoryPanelViewController: NSViewController {
     private func handHighlightToKeyboard() {
         hoverOwnsHighlight = false
         stopExitWatch()
+    }
+
+    /// Highlight a row for the pointer or the keyboard. Their highlights
+    /// always get a card, so one a search held back is released here; when
+    /// the highlight stays on the same row (↑ on the first match, the pointer
+    /// moving onto it) no selection change comes along to schedule it
+    private func highlightRow(_ row: Int) {
+        let wasHeld = previewHeld
+        previewHeld = false
+        if row != tableView.selectedRow {
+            tableView.selectRowIndexes([row], byExtendingSelection: false)
+        } else if wasHeld {
+            schedulePreview()
+        }
     }
 
     /// The pointer left the panel. Leaving through the top or bottom already
@@ -952,11 +974,12 @@ final class HistoryPanelViewController: NSViewController {
 
     /// Reschedule the preview card after a selection change; the delay is
     /// previewDelayMs and doubles as the coalescing window while sweeping, so
-    /// a quick pass only pops the card where the pointer settles
+    /// a quick pass only pops the card where the pointer settles. A held card
+    /// (previewHeld) stays down
     private func schedulePreview() {
         cancelPreview()
         let row = tableView.selectedRow
-        guard !confirming, entries.indices.contains(row) else { return }
+        guard !confirming, !previewHeld, entries.indices.contains(row) else { return }
         let entry = entries[row]
         let delay = previewDelayMs
         previewTimer = Task { [weak self] in
