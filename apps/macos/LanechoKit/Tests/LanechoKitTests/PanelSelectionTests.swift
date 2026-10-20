@@ -11,21 +11,44 @@ import Testing
 @Test func refreshOnEmptyListSelectsNothing() {
     #expect(
         rowToSelectAfterRefresh(
-            resetSelection: true, hadSelection: true, restoredIndex: nil, previousRow: 3,
-            entryCount: 0) == nil)
+            resetSelection: true, filtering: true, hadSelection: true, restoredIndex: nil,
+            previousRow: 3, entryCount: 0) == nil)
     #expect(
         rowToSelectAfterRefresh(
-            resetSelection: false, hadSelection: true, restoredIndex: 2, previousRow: 2,
-            entryCount: 0) == nil)
+            resetSelection: false, filtering: false, hadSelection: true, restoredIndex: 2,
+            previousRow: 2, entryCount: 0) == nil)
 }
 
-/// Reset semantics (opening the panel, changing the search term) go back to the
-/// first row
-@Test func refreshWithResetGoesToFirstRow() {
+/// **Regression guard**: opening the panel, or clearing the search back to
+/// the full list, selects nothing.
+///
+/// Starting over used to go to the first row. The pointer is somewhere else
+/// entirely when the panel opens (on the menu bar icon, or wherever it rested
+/// when the hotkey fired), yet the first row lit up and its preview card
+/// popped up beside the panel on its own. Make starting over return 0 again
+/// and this goes red.
+@Test func openingThePanelSelectsNothing() {
     #expect(
         rowToSelectAfterRefresh(
-            resetSelection: true, hadSelection: false, restoredIndex: nil, previousRow: -1,
-            entryCount: 5) == 0)
+            resetSelection: true, filtering: false, hadSelection: false, restoredIndex: nil,
+            previousRow: -1, entryCount: 5) == nil)
+    // Clearing the search: something was selected in the filtered list
+    #expect(
+        rowToSelectAfterRefresh(
+            resetSelection: true, filtering: false, hadSelection: true, restoredIndex: nil,
+            previousRow: 2, entryCount: 5) == nil)
+}
+
+/// A changed search term starts on the first match, so Enter takes it
+@Test func searchStartsOnTheFirstMatch() {
+    #expect(
+        rowToSelectAfterRefresh(
+            resetSelection: true, filtering: true, hadSelection: false, restoredIndex: nil,
+            previousRow: -1, entryCount: 5) == 0)
+    #expect(
+        rowToSelectAfterRefresh(
+            resetSelection: true, filtering: true, hadSelection: true, restoredIndex: nil,
+            previousRow: 3, entryCount: 5) == 0)
 }
 
 /// The previous selection still exists: follow it by id to its new position,
@@ -33,8 +56,8 @@ import Testing
 @Test func refreshFollowsRestoredEntry() {
     #expect(
         rowToSelectAfterRefresh(
-            resetSelection: false, hadSelection: true, restoredIndex: 4, previousRow: 1,
-            entryCount: 9) == 4)
+            resetSelection: false, filtering: false, hadSelection: true, restoredIndex: 4,
+            previousRow: 1, entryCount: 9) == 4)
 }
 
 /// The previous selection was deleted: stay on the same row number, or step
@@ -42,13 +65,13 @@ import Testing
 @Test func refreshFallsBackToPreviousRow() {
     #expect(
         rowToSelectAfterRefresh(
-            resetSelection: false, hadSelection: true, restoredIndex: nil, previousRow: 2,
-            entryCount: 9) == 2)
+            resetSelection: false, filtering: false, hadSelection: true, restoredIndex: nil,
+            previousRow: 2, entryCount: 9) == 2)
     // Was on the last row; once the list shrinks it clamps to the new last row
     #expect(
         rowToSelectAfterRefresh(
-            resetSelection: false, hadSelection: true, restoredIndex: nil, previousRow: 8,
-            entryCount: 3) == 2)
+            resetSelection: false, filtering: false, hadSelection: true, restoredIndex: nil,
+            previousRow: 8, entryCount: 3) == 2)
 }
 
 /// **Regression guard**: if nothing was selected before the refresh (the
@@ -62,8 +85,8 @@ import Testing
 @Test func refreshKeepsEmptySelectionEmpty() {
     #expect(
         rowToSelectAfterRefresh(
-            resetSelection: false, hadSelection: false, restoredIndex: nil, previousRow: -1,
-            entryCount: 6) == nil)
+            resetSelection: false, filtering: false, hadSelection: false, restoredIndex: nil,
+            previousRow: -1, entryCount: 6) == nil)
 }
 
 /// The list area used by the hover tests: the panel is 360 wide, the search
@@ -159,10 +182,10 @@ private let cardOnLeft = CGRect(x: 72, y: 300, width: 320, height: 240)
 @Test func refreshIgnoresOutOfRangeRestoredIndex() {
     #expect(
         rowToSelectAfterRefresh(
-            resetSelection: false, hadSelection: true, restoredIndex: 12, previousRow: 1,
-            entryCount: 4) == 1)
+            resetSelection: false, filtering: false, hadSelection: true, restoredIndex: 12,
+            previousRow: 1, entryCount: 4) == 1)
     #expect(
         rowToSelectAfterRefresh(
-            resetSelection: false, hadSelection: false, restoredIndex: 12, previousRow: -1,
-            entryCount: 4) == nil)
+            resetSelection: false, filtering: false, hadSelection: false, restoredIndex: 12,
+            previousRow: -1, entryCount: 4) == nil)
 }
