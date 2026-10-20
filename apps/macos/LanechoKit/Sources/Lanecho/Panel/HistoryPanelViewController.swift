@@ -585,8 +585,8 @@ final class HistoryPanelViewController: NSViewController {
         let previousRow = tableView.selectedRow
         let hadSelection = previousRow >= 0
         if resetSelection {
-            // The first row is the keyboard's starting point, not a pointer
-            // pick
+            // Starting over is not a pointer pick: the first match a search
+            // lands on belongs to the keyboard
             handHighlightToKeyboard()
         }
         entries = filtered
@@ -601,7 +601,7 @@ final class HistoryPanelViewController: NSViewController {
         // reordering; the remaining edge cases live in rowToSelectAfterRefresh
         let restored = previous.flatMap { id in entries.firstIndex(where: { $0.id == id }) }
         if let row = rowToSelectAfterRefresh(
-            resetSelection: resetSelection, hadSelection: hadSelection,
+            resetSelection: resetSelection, filtering: !query.isEmpty, hadSelection: hadSelection,
             restoredIndex: restored, previousRow: previousRow, entryCount: entries.count)
         {
             tableView.selectRowIndexes([row], byExtendingSelection: false)
@@ -613,11 +613,17 @@ final class HistoryPanelViewController: NSViewController {
                 tableView.scrollRowToVisible(row)
             }
         } else {
-            // Nothing selected now (no results, or nothing was selected
-            // before). reloadData drops the selection without posting
-            // selectionDidChange, so a card still up for the old highlight
-            // would otherwise outlive it beside the emptied list
+            // Nothing selected now (no results, nothing was selected before,
+            // or a fresh start on the full list). reloadData drops the
+            // selection without posting selectionDidChange, so a card still up
+            // for the old highlight would otherwise outlive it beside the
+            // emptied list
             cancelPreview()
+            // A fresh start still goes back to the top; with a row selected
+            // that happens above
+            if resetSelection, !entries.isEmpty {
+                tableView.scrollRowToVisible(0)
+            }
         }
     }
 

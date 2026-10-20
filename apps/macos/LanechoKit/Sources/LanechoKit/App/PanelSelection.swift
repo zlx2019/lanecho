@@ -12,8 +12,12 @@ import Foundation
 /// Row to select after the refresh; `nil` = keep nothing selected
 ///
 /// - Parameters:
-///   - resetSelection: means "go back to the first entry" (panel opened,
-///     search text changed)
+///   - resetSelection: the selection starts over instead of following the old
+///     one (panel opened, search text changed)
+///   - filtering: whether a search query narrows the list. Starting over on
+///     the full list selects nothing: a highlight there only comes from the
+///     pointer or the keyboard (↓/↑ start from the first entry). A filtered
+///     list starts on its first match so Enter takes it
 ///   - hadSelection: whether anything was selected before the refresh (nothing
 ///     is, while the pointer rests on the footer or the search field)
 ///   - restoredIndex: position of the previously selected entry in the new
@@ -23,13 +27,14 @@ import Foundation
 ///   - entryCount: number of entries in the new list
 public func rowToSelectAfterRefresh(
     resetSelection: Bool,
+    filtering: Bool,
     hadSelection: Bool,
     restoredIndex: Int?,
     previousRow: Int,
     entryCount: Int
 ) -> Int? {
     guard entryCount > 0 else { return nil }
-    if resetSelection { return 0 }
+    if resetSelection { return filtering ? 0 : nil }
     if let restoredIndex, restoredIndex >= 0, restoredIndex < entryCount {
         return restoredIndex
     }
