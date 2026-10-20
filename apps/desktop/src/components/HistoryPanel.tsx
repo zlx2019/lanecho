@@ -58,6 +58,12 @@ const SEARCH_DEBOUNCE_MS = 80;
  *  holds about 12 rows, so 120 covers several screens of scrolling) */
 const RENDER_CHUNK_ROWS = 120;
 
+/** `selected` value for "nothing highlighted": a fresh open, or the search
+ *  cleared back to the full list. A highlight there only comes from the
+ *  pointer or ↑/↓ (both arrows start at the first entry), as on the native
+ *  client */
+const NO_ROW = -1;
+
 /** Floating history panel */
 export function HistoryPanel() {
   const { t, lang, setLang } = useI18n();
@@ -68,7 +74,7 @@ export function HistoryPanel() {
   // history" state)
   const [entries, setEntries] = useState<HistoryEntryDto[] | null>(null);
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState(0);
+  const [selected, setSelected] = useState(NO_ROW);
   const [error, setError] = useState("");
   // Preview-card delay (a setting; the reload on every panel open picks up
   // the latest value)
@@ -76,7 +82,8 @@ export function HistoryPanel() {
   // Slot-badge modifier label (follows the slotModifier setting, same reload)
   const [slotMod, setSlotMod] = useState(DEFAULT_SLOT_MOD);
   // Preview suppression: no card while the pointer rests off the rows (search
-  // row / blank tail of the list / footer menu)
+  // row / blank tail of the list / footer menu), nor for the first match a
+  // search lands on until the pointer or ↑/↓ takes over
   const [previewSuppressed, setPreviewSuppressed] = useState(false);
   // Clear-history confirmation (an in-panel overlay, not a native dialog —
   // a native one steals focus and the panel hides itself)
@@ -226,16 +233,16 @@ export function HistoryPanel() {
         reload();
         setQuery("");
         setMatchIds(null);
-        setSelected(0);
+        // A fresh open highlights nothing. The panel is opened with the
+        // pointer somewhere else entirely — on the tray icon, or wherever it
+        // happened to rest when the hotkey was pressed — so no row is meant
+        // yet; moving onto a row or pressing ↑/↓ makes the first highlight
+        setSelected(NO_ROW);
         setError("");
         setRenderBase(RENDER_CHUNK_ROWS);
-        // A fresh open starts **suppressed**. The panel is opened with the
-        // pointer somewhere else entirely — on the tray icon, or wherever it
-        // happened to rest when the hotkey was pressed — and the first row is
-        // highlighted only to give the keyboard a starting point. Lifting the
-        // suppression here made the card pop up beside the panel on its own,
-        // with the pointer on no row at all, and vanish again as soon as the
-        // mouse moved and the row-band probe ran. Moving onto a row lifts it
+        // Back to the top: with nothing highlighted, no scrollIntoView does it
+        listRef.current?.scrollTo({ top: 0 });
+        // The card starts **suppressed** as well. Moving onto a row lifts it
         // (onPanelMouseMove), and so does ↑/↓.
         setPreviewSuppressed(true);
         setClearAsking(false);
@@ -276,8 +283,9 @@ export function HistoryPanel() {
     if (matchIds === null) return loaded;
     return loaded.filter((e) => matchIds.has(e.id));
   }, [loaded, matchIds]);
-  // Clamp both ends: arrow keys on an empty list can drive selected to -1
-  const highlight = Math.max(0, Math.min(selected, filtered.length - 1));
+  // NO_ROW stays NO_ROW, and so does anything on an empty list; otherwise
+  // clamp to the last row, since the list can shrink under the highlight
+  const highlight = selected < 0 ? NO_ROW : Math.min(selected, filtered.length - 1);
   // Incremental render window: the sentinel drives the base, but whatever row
   // keyboard navigation reaches must be rendered (deriving it inside the same
   // render guarantees the row is in the DOM for scrollIntoView and row-band
@@ -311,7 +319,7 @@ export function HistoryPanel() {
   // would steal the highlight (mousemove is immune: scrolling the list
   // without moving the mouse produces no mousemove)
   useEffect(() => {
-    if (inputSourceRef.current === "keyboard") {
+    if (highlight !== NO_ROW && inputSourceRef.current === "keyboard") {
       highlightElRef.current?.scrollIntoView({ block: "nearest" });
     }
   }, [highlight]);
@@ -323,7 +331,7 @@ export function HistoryPanel() {
   // highlight or refreshing the list resets the timer, so rows swept through
   // are never pushed; if the panel is already closed, show_preview_impl on
   // the Rust side refuses to show.
-  const highlightEntry = filtered.length > 0 ? filtered[highlight] : undefined;
+  const highlightEntry = highlight !== NO_ROW ? filtered[highlight] : undefined;
   useEffect(() => {
     if (!hasTauri) return;
     // This round invalidates older sequences: once the highlight has moved
@@ -388,7 +396,7 @@ export function HistoryPanel() {
    *  hands focus back so the paste lands */
   const dismiss = useCallback(() => {
     setQuery("");
-    setSelected(0);
+    setSelected(NO_ROW);
     api.hidePanel().catch(() => void getCurrentWindow().hide());
   }, []);
 
@@ -546,7 +554,12 @@ export function HistoryPanel() {
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
-            setSelected(0);
+            // A search starts on its first match so Enter takes it, with the
+            // card held back: only the pointer or ↑/↓ brings one up, as on
+            // the native client. Clearing it back to the full list highlights
+            // nothing, like a fresh open
+            setSelected(e.target.value ? 0 : NO_ROW);
+            setPreviewSuppressed(true);
           }}
           placeholder={t.history.searchPlaceholder}
           className="min-w-0 flex-1 bg-transparent text-sm text-fog outline-none placeholder:text-faint"
