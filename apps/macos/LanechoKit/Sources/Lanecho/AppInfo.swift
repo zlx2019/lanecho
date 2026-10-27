@@ -6,14 +6,15 @@ import Foundation
 let appName = "Lanecho"
 
 /// Version: bundled builds read Info.plist; `swift run` has no bundle and
-/// falls back to a development marker
+/// falls back to a development marker. The build number (CFBundleVersion) is
+/// left out on purpose: project.yml pins it at 1, so showing it would only
+/// append a constant "(1)"
 let appVersion: String = {
     guard
         let short = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
         !short.isEmpty
     else { return "0.1.0-dev" }
-    let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
-    return build.map { "\(short) (\($0))" } ?? short
+    return short
 }()
 
 /// Whether we run inside a real .app bundle (a precondition for system
